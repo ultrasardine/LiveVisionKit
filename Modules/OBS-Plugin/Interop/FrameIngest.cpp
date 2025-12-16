@@ -19,7 +19,7 @@
 
 #include <tuple>
 #include <thread>
-#include <LiveVisionKit.hpp>
+#include <OpenVisionKit.hpp>
 
 #include "Utility/ScopedProfiler.hpp"
 

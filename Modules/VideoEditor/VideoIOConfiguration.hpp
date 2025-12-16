@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include <LiveVisionKit.hpp>
+#include <OpenVisionKit.hpp>
 #include <filesystem>
 #include <optional>
 #include <variant>
@@ -25,6 +25,10 @@
 
 #include "OptionParser.hpp"
 #include "FilterParser.hpp"
+
+#ifdef MACOS_BUILD
+#include "MacOSVideoSupport.hpp"
+#endif
 
 namespace clt
 {

@@ -1,0 +1,170 @@
+name: ✨ Feature Request
+description: Suggest a new feature or enhancement for OpenVisionKit
+title: "[Feature]: "
+labels: ["enhancement", "triage"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting a new feature! Please fill out this form to help us understand your request.
+        
+        **Before submitting**: Consider discussing your idea in [GitHub Discussions](https://github.com/ultrasardine/OpenVisionKit/discussions) first.
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-submission Checklist
+      description: Please verify these items before submitting
+      options:
+        - label: I have searched existing issues and discussions for similar requests
+          required: true
+        - label: I have read the [Contributing Guidelines](https://github.com/ultrasardine/OpenVisionKit/blob/main/CONTRIBUTING.md)
+          required: true
+        - label: This feature aligns with the project's goals and scope
+          required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Feature Category
+      description: What type of feature is this?
+      options:
+        - Video Filter/Effect
+        - Performance Optimization
+        - Platform Support
+        - OBS Studio Integration
+        - User Interface/Experience
+        - Build System/Development
+        - Documentation
+        - Other (specify in description)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority Level
+      description: How important is this feature to you?
+      options:
+        - Low - Nice to have
+        - Medium - Would be helpful
+        - High - Important for my use case
+        - Critical - Blocking my usage
+    validations:
+      required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Feature Summary
+      description: A clear and concise description of the feature you'd like to see
+      placeholder: "I would like OpenVisionKit to support..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: What problem does this feature solve? What's the current limitation?
+      placeholder: "Currently, users cannot... This makes it difficult to..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: Describe your ideal solution to the problem
+      placeholder: "I would like to see... This could work by..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: use_cases
+    attributes:
+      label: Use Cases
+      description: Provide at least 2-3 specific use cases where this feature would be valuable
+      placeholder: |
+        1. Streamers who want to...
+        2. Content creators who need to...
+        3. Video editors who require...
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternative Solutions
+      description: Have you considered any alternative approaches or workarounds?
+      placeholder: "I've tried... but it doesn't work because..."
+
+  - type: textarea
+    id: examples
+    attributes:
+      label: Examples and References
+      description: |
+        Provide examples of similar features in other software, academic papers, or implementations
+      placeholder: |
+        - Similar feature in Software X: [link]
+        - Academic paper: [title and link]
+        - Open source implementation: [link]
+
+  - type: dropdown
+    id: complexity
+    attributes:
+      label: Implementation Complexity (if known)
+      description: If you have technical knowledge, how complex do you think this would be?
+      options:
+        - I don't know
+        - Simple - Minor changes
+        - Moderate - Some new code
+        - Complex - Significant development
+        - Very Complex - Major architectural changes
+
+  - type: textarea
+    id: technical_details
+    attributes:
+      label: Technical Details (optional)
+      description: |
+        If you have technical knowledge, provide any relevant implementation details, 
+        algorithms, or technical considerations
+      placeholder: |
+        - Suggested algorithm: ...
+        - Performance considerations: ...
+        - Dependencies required: ...
+        - API design ideas: ...
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution Interest
+      description: Are you interested in helping implement this feature?
+      options:
+        - label: I would like to help implement this feature
+        - label: I can provide testing and feedback
+        - label: I can help with documentation
+        - label: I can provide domain expertise/consultation
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: |
+        Any other context, screenshots, mockups, or information that would be helpful
+      placeholder: Add any other context, screenshots, or examples here
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Submission Agreement
+      description: By submitting this feature request, you agree to our terms
+      options:
+        - label: I agree to follow the [Code of Conduct](https://github.com/ultrasardine/OpenVisionKit/blob/main/CODE_OF_CONDUCT.md)
+          required: true
+        - label: I understand this is a community-maintained project and implementation depends on community contributions
+          required: true
+        - label: I understand that feature requests may be closed if they don't align with project goals
+          required: true

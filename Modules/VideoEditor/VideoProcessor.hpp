@@ -17,11 +17,15 @@
 
 #pragma once
 
-#include <LiveVisionKit.hpp>
+#include <OpenVisionKit.hpp>
 #include <fstream>
 
 #include "VideoIOConfiguration.hpp"
 #include "ConsoleLogger.hpp"
+
+#ifdef MACOS_BUILD
+#include "MacOSVideoSupport.hpp"
+#endif
 
 namespace clt
 {
@@ -32,6 +36,8 @@ namespace clt
 
         explicit VideoProcessor(VideoIOConfiguration configuration);
 
+        ~VideoProcessor();
+
         std::optional<std::string> run();
 
         void stop();
@@ -41,6 +47,18 @@ namespace clt
         std::optional<std::string> initialize_configuration();
 
         std::optional<std::string> initialize_output_stream(const cv::Size frame_size);
+
+#ifdef MACOS_BUILD
+        std::optional<std::string> initialize_macos_video_support();
+        
+        std::optional<std::string> configure_macos_input_stream();
+        
+        std::optional<std::string> configure_macos_output_stream(const cv::Size frame_size);
+        
+        void setup_macos_parallel_processing();
+        
+        void cleanup_macos_parallel_processing();
+#endif
 
         void write_to_loggers();
 

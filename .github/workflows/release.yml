@@ -1,0 +1,222 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., v1.0.0)'
+        required: true
+        type: string
+
+env:
+  BUILD_TYPE: Release
+
+jobs:
+  # Create GitHub Release
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+      version: ${{ steps.get_version.outputs.version }}
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Get version
+      id: get_version
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          VERSION="${{ github.event.inputs.version }}"
+        else
+          VERSION=${GITHUB_REF#refs/tags/}
+        fi
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "Version: $VERSION"
+    
+    - name: Generate release notes
+      run: |
+        if [ -f CHANGELOG.md ]; then
+          # Extract changelog for this version
+          awk '/^## \[Unreleased\]/{flag=1; next} /^## \[/{flag=0} flag' CHANGELOG.md > release_notes.md
+          if [ ! -s release_notes.md ]; then
+            echo "Release ${{ steps.get_version.outputs.version }}" > release_notes.md
+          fi
+        else
+          echo "Release ${{ steps.get_version.outputs.version }}" > release_notes.md
+        fi
+    
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ steps.get_version.outputs.version }}
+        release_name: OpenVisionKit ${{ steps.get_version.outputs.version }}
+        body_path: release_notes.md
+        draft: false
+        prerelease: ${{ contains(steps.get_version.outputs.version, '-') }}
+
+  # Build release packages for all platforms
+  build-release:
+    name: Build ${{ matrix.platform }} Release
+    needs: create-release
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - platform: Windows
+            os: windows-latest
+            artifact_name: OpenVisionKit-${{ needs.create-release.outputs.version }}-Windows-x64
+            content_type: application/zip
+          - platform: Linux
+            os: ubuntu-latest
+            artifact_name: OpenVisionKit-${{ needs.create-release.outputs.version }}-Linux-x64
+            content_type: application/gzip
+          - platform: macOS
+            os: macos-latest
+            artifact_name: OpenVisionKit-${{ needs.create-release.outputs.version }}-macOS-Universal
+            content_type: application/gzip
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    # Platform-specific dependencies (same as package workflow)
+    - name: Install Linux dependencies
+      if: matrix.platform == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          cmake build-essential \
+          libopencv-dev libeigen3-dev qtbase5-dev \
+          pkg-config
+    
+    - name: Setup MSVC
+      if: matrix.platform == 'Windows'
+      uses: microsoft/setup-msbuild@v1.3
+    
+    - name: Install Windows dependencies
+      if: matrix.platform == 'Windows'
+      run: |
+        vcpkg install opencv:x64-windows
+        vcpkg install eigen3:x64-windows
+        vcpkg install qt5-base:x64-windows
+    
+    - name: Install macOS dependencies
+      if: matrix.platform == 'macOS'
+      run: |
+        brew update
+        brew install cmake opencv eigen qt5 pkg-config
+    
+    # Configure and build
+    - name: Configure CMake (Linux/macOS)
+      if: matrix.platform != 'Windows'
+      run: |
+        QT_CMAKE_ARGS=""
+        if [ "${{ matrix.platform }}" = "macOS" ]; then
+          QT_CMAKE_ARGS="-DQt5_DIR=$(brew --prefix qt5)/lib/cmake/Qt5"
+        fi
+        
+        cmake -B build \
+          -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
+          -DCMAKE_CXX_STANDARD=20 \
+          -DBUILD_OBS_PLUGIN=ON \
+          -DBUILD_VIDEO_EDITOR=ON \
+          $QT_CMAKE_ARGS
+    
+    - name: Configure CMake (Windows)
+      if: matrix.platform == 'Windows'
+      run: |
+        cmake -B build -A x64 `
+          -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} `
+          -DCMAKE_CXX_STANDARD=20 `
+          -DCMAKE_TOOLCHAIN_FILE="C:/vcpkg/scripts/buildsystems/vcpkg.cmake" `
+          -DBUILD_OBS_PLUGIN=ON `
+          -DBUILD_VIDEO_EDITOR=ON
+    
+    - name: Build
+      run: cmake --build build --config ${{ env.BUILD_TYPE }} -j
+    
+    # Package releases (same logic as package workflow)
+    - name: Package Windows Release
+      if: matrix.platform == 'Windows'
+      run: |
+        $packageName = "${{ matrix.artifact_name }}"
+        mkdir $packageName
+        # Copy binaries
+        Get-ChildItem -Path "build/${{ env.BUILD_TYPE }}" -Filter "*.exe" | Copy-Item -Destination "$packageName/"
+        Get-ChildItem -Path "build/${{ env.BUILD_TYPE }}" -Filter "*.dll" | Copy-Item -Destination "$packageName/"
+        # Copy OBS plugin if exists
+        if (Test-Path "build/Modules/OBS-Plugin/${{ env.BUILD_TYPE }}") {
+          New-Item -ItemType Directory -Path "$packageName/obs-plugins" -Force
+          Get-ChildItem -Path "build/Modules/OBS-Plugin/${{ env.BUILD_TYPE }}" -Recurse | Copy-Item -Destination "$packageName/obs-plugins/" -Recurse -Force
+        }
+        # Copy documentation
+        Copy-Item -Path "README.md", "LICENSE", "CHANGELOG.md", "openvisionkit_architecture.md" -Destination "$packageName/"
+        # Create archive
+        Compress-Archive -Path $packageName -DestinationPath "$packageName.zip"
+    
+    - name: Package Linux Release
+      if: matrix.platform == 'Linux'
+      run: |
+        PACKAGE_NAME="${{ matrix.artifact_name }}"
+        mkdir $PACKAGE_NAME
+        # Copy binaries
+        find build -name "*.so" -exec cp {} $PACKAGE_NAME/ \; 2>/dev/null || true
+        find build -executable -type f -not -name "*.so" -exec cp {} $PACKAGE_NAME/ \; 2>/dev/null || true
+        # Copy OBS plugin if exists
+        if [ -d "build/Modules/OBS-Plugin" ]; then
+          mkdir -p $PACKAGE_NAME/obs-plugins
+          find build/Modules/OBS-Plugin -name "*.so" -exec cp {} $PACKAGE_NAME/obs-plugins/ \; 2>/dev/null || true
+        fi
+        # Copy documentation
+        cp README.md LICENSE CHANGELOG.md openvisionkit_architecture.md $PACKAGE_NAME/
+        # Create archive
+        tar -czf $PACKAGE_NAME.tar.gz $PACKAGE_NAME
+    
+    - name: Package macOS Release
+      if: matrix.platform == 'macOS'
+      run: |
+        PACKAGE_NAME="${{ matrix.artifact_name }}"
+        mkdir $PACKAGE_NAME
+        # Copy binaries
+        find build -name "*.dylib" -exec cp {} $PACKAGE_NAME/ \; 2>/dev/null || true
+        find build -perm +111 -type f -not -name "*.dylib" -exec cp {} $PACKAGE_NAME/ \; 2>/dev/null || true
+        # Copy OBS plugin if exists
+        if [ -d "build/Modules/OBS-Plugin" ]; then
+          mkdir -p $PACKAGE_NAME/obs-plugins
+          find build/Modules/OBS-Plugin -name "*.dylib" -exec cp {} $PACKAGE_NAME/obs-plugins/ \; 2>/dev/null || true
+        fi
+        # Copy documentation
+        cp README.md LICENSE CHANGELOG.md openvisionkit_architecture.md $PACKAGE_NAME/
+        # Create archive
+        tar -czf $PACKAGE_NAME.tar.gz $PACKAGE_NAME
+    
+    # Upload to GitHub Release
+    - name: Upload Release Asset (Windows)
+      if: matrix.platform == 'Windows'
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ needs.create-release.outputs.upload_url }}
+        asset_path: ${{ matrix.artifact_name }}.zip
+        asset_name: ${{ matrix.artifact_name }}.zip
+        asset_content_type: ${{ matrix.content_type }}
+    
+    - name: Upload Release Asset (Linux/macOS)
+      if: matrix.platform != 'Windows'
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ needs.create-release.outputs.upload_url }}
+        asset_path: ${{ matrix.artifact_name }}.tar.gz
+        asset_name: ${{ matrix.artifact_name }}.tar.gz
+        asset_content_type: ${{ matrix.content_type }}

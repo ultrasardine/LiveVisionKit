@@ -1,5 +1,6 @@
-//    *************************** LiveVisionKit ****************************
-//    Copyright (C) 2022  Sebastian Di Marco (crowsinc.dev@gmail.com)
+//    *************************** OpenVisionKit ****************************
+//    Originally LiveVisionKit - Copyright (C) 2022  Sebastian Di Marco (crowsinc.dev@gmail.com)
+//    Community fork maintained by OpenVisionKit contributors
 //
 //    This program is free software: you can redistribute it and/or modify
 //    it under the terms of the GNU General Public License as published by

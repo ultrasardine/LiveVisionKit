@@ -1,0 +1,197 @@
+name: CI Tests
+
+on:
+  push:
+    branches: [ main, develop, feature/* ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  BUILD_TYPE: Release
+
+jobs:
+  # Test on all platforms
+  test:
+    name: Test ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    # Linux dependencies
+    - name: Install Linux dependencies
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          cmake build-essential \
+          libopencv-dev \
+          libeigen3-dev \
+          qtbase5-dev qttools5-dev \
+          pkg-config \
+          libopencv-contrib-dev
+        
+        # Install OBS Studio development dependencies
+        sudo apt-get install -y \
+          libx11-dev libgl1-mesa-dev \
+          libasound2-dev libpulse-dev \
+          libxcomposite-dev libxinerama-dev \
+          libxss-dev libglib2.0-dev \
+          libfontconfig1-dev libfreetype6-dev \
+          libxrandr-dev libjansson-dev \
+          libcurl4-openssl-dev
+        
+        # Build OBS Studio from source (minimal build for headers only)
+        git clone --recursive --depth 1 --branch 30.0.2 https://github.com/obsproject/obs-studio.git /tmp/obs-source
+        cd /tmp/obs-source
+        mkdir build && cd build
+        
+        cmake .. \
+          -DCMAKE_INSTALL_PREFIX=/usr/local \
+          -DENABLE_PLUGINS=OFF \
+          -DENABLE_UI=OFF \
+          -DENABLE_SCRIPTING=OFF \
+          -DBUILD_TESTS=OFF \
+          -DENABLE_BROWSER=OFF \
+          -DENABLE_WEBSOCKET=OFF
+        
+        make -j$(nproc) obs-frontend-api
+        sudo make install
+    
+    # Windows dependencies
+    - name: Setup MSVC
+      if: matrix.os == 'windows-latest'
+      uses: microsoft/setup-msbuild@v1.3
+    
+    - name: Cache vcpkg
+      if: matrix.os == 'windows-latest'
+      uses: actions/cache@v4
+      with:
+        path: |
+          C:/vcpkg/installed
+          C:/vcpkg/packages
+        key: ${{ runner.os }}-vcpkg-${{ hashFiles('**/vcpkg.json') }}
+        restore-keys: |
+          ${{ runner.os }}-vcpkg-
+    
+    - name: Cache OBS Studio build
+      if: matrix.os == 'windows-latest'
+      uses: actions/cache@v4
+      with:
+        path: |
+          C:/obs-studio
+          C:/obs-build
+        key: ${{ runner.os }}-obs-30.0.2
+        restore-keys: |
+          ${{ runner.os }}-obs-
+    
+    - name: Install Windows dependencies
+      if: matrix.os == 'windows-latest'
+      run: |
+        vcpkg install opencv[core,imgproc,imgcodecs,highgui,calib3d,features2d,video,videoio]:x64-windows
+        vcpkg install eigen3:x64-windows
+        vcpkg install qt5-base:x64-windows
+    
+    - name: Setup OBS Studio (Windows)
+      if: matrix.os == 'windows-latest'
+      run: |
+        # Check if OBS Studio is already built (from cache)
+        if (Test-Path "C:\obs-studio\install\include\obs\obs.h") {
+          Write-Host "OBS Studio already built (from cache)"
+        } else {
+          Write-Host "Building OBS Studio from source..."
+          
+          # Clone OBS Studio source and build it for development headers
+          git clone --recursive --depth 1 --branch 30.0.2 https://github.com/obsproject/obs-studio.git C:\obs-source
+          
+          # Create build directory
+          mkdir C:\obs-build -Force
+          cd C:\obs-build
+          
+          # Configure OBS Studio build
+          cmake -G "Visual Studio 17 2022" -A x64 `
+            -DCMAKE_INSTALL_PREFIX="C:\obs-studio" `
+            -DENABLE_PLUGINS=OFF `
+            -DENABLE_UI=OFF `
+            -DENABLE_SCRIPTING=OFF `
+            -DBUILD_TESTS=OFF `
+            C:\obs-source
+          
+          # Build and install OBS Studio (headers and libraries only)
+          cmake --build . --config Release --target install -j
+        }
+        
+        # Set environment variable for CMake
+        echo "OBS_BUILD_PATH=C:\obs-studio" >> $env:GITHUB_ENV
+    
+    # macOS dependencies
+    - name: Install macOS dependencies
+      if: matrix.os == 'macos-latest'
+      run: |
+        brew update
+        brew install cmake opencv eigen qt@5 pkg-config
+        
+        # Install OBS Studio - use cask for the application, then build from source for dev headers
+        brew install --cask obs
+        
+        # Clone and build OBS Studio for development headers
+        git clone --recursive --depth 1 --branch 30.0.2 https://github.com/obsproject/obs-studio.git /tmp/obs-source
+        mkdir /tmp/obs-build
+        cd /tmp/obs-build
+        
+        cmake -DCMAKE_INSTALL_PREFIX=/usr/local \
+              -DENABLE_PLUGINS=OFF \
+              -DENABLE_UI=OFF \
+              -DENABLE_SCRIPTING=OFF \
+              -DBUILD_TESTS=OFF \
+              /tmp/obs-source
+        
+        make -j$(sysctl -n hw.ncpu)
+        sudo make install
+    
+    # Configure CMake
+    - name: Configure CMake (Linux/macOS)
+      if: matrix.os != 'windows-latest'
+      run: |
+        QT_CMAKE_ARGS=""
+        OBS_CMAKE_ARGS=""
+        
+        if [ "${{ matrix.os }}" = "macos-latest" ]; then
+          QT_CMAKE_ARGS="-DQt5_DIR=$(brew --prefix qt@5)/lib/cmake/Qt5"
+        fi
+        
+        # Both Linux and macOS now install OBS to /usr/local
+        OBS_CMAKE_ARGS="-DOBS_BUILD_PATH=/usr/local"
+        
+        cmake -B build \
+          -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
+          -DCMAKE_CXX_STANDARD=20 \
+          -DENABLE_TESTING=ON \
+          -DBUILD_OBS_PLUGIN=ON \
+          $QT_CMAKE_ARGS \
+          $OBS_CMAKE_ARGS
+    
+    - name: Configure CMake (Windows)
+      if: matrix.os == 'windows-latest'
+      run: |
+        cmake -B build -A x64 `
+          -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} `
+          -DCMAKE_CXX_STANDARD=20 `
+          -DCMAKE_TOOLCHAIN_FILE="C:/vcpkg/scripts/buildsystems/vcpkg.cmake" `
+          -DENABLE_TESTING=ON `
+          -DBUILD_OBS_PLUGIN=ON `
+          -DOBS_BUILD_PATH="$env:OBS_BUILD_PATH"
+    
+    # Build
+    - name: Build
+      run: cmake --build build --config ${{ env.BUILD_TYPE }} -j
+    
+    # Test
+    - name: Test
+      working-directory: build
+      run: ctest --output-on-failure --build-config ${{ env.BUILD_TYPE }}

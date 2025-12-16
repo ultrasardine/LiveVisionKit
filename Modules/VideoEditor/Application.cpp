@@ -15,7 +15,7 @@
 //     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //     **********************************************************************
 
-#include <LiveVisionKit.hpp>
+#include <OpenVisionKit.hpp>
 #include <signal.h>
 
 #include "VideoIOConfiguration.hpp"
@@ -60,7 +60,7 @@ int main(int argc, char* argv[])
 
     // Set up LVK assert handler
     lvk::context::assert_handler = [](auto, auto, const std::string& assertion){
-        std::cerr << cv::format("LiveVisionKit failed condition: %s\n", assertion.c_str());
+        std::cerr << cv::format("OpenVisionKit failed condition: %s\n", assertion.c_str());
         std::abort();
     };
 

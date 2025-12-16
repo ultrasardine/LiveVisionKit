@@ -22,7 +22,7 @@
 #include <optional>
 #include <functional>
 #include <unordered_map>
-#include <LiveVisionKit.hpp>
+#include <OpenVisionKit.hpp>
 
 namespace clt
 {

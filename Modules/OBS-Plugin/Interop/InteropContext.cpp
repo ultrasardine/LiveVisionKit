@@ -17,7 +17,7 @@
 
 #include "InteropContext.hpp"
 
-#include <LiveVisionKit.hpp>
+#include <OpenVisionKit.hpp>
 #include "Utility/Logging.hpp"
 #include "Utility/ScopedProfiler.hpp"
 

@@ -31,12 +31,31 @@ namespace clt
 
     VideoProcessor::VideoProcessor(VideoIOConfiguration configuration)
         : m_Configuration(std::move(configuration))
-    {}
+    {
+#ifdef MACOS_BUILD
+        setup_macos_parallel_processing();
+#endif
+    }
+
+//---------------------------------------------------------------------------------------------------------------------
+
+    VideoProcessor::~VideoProcessor()
+    {
+#ifdef MACOS_BUILD
+        cleanup_macos_parallel_processing();
+#endif
+    }
 
 //---------------------------------------------------------------------------------------------------------------------
 
     std::optional<std::string> VideoProcessor::initialize_configuration()
     {
+#ifdef MACOS_BUILD
+        // Initialize macOS video support
+        if(auto error = initialize_macos_video_support(); error.has_value())
+            return error;
+#endif
+
         // Open input stream
         std::optional<std::string> input_error;
         std::visit([&, this](auto&& source){
@@ -44,6 +63,10 @@ namespace clt
 
             if constexpr(std::is_same_v<source_type, std::filesystem::path>)
             {
+#ifdef MACOS_BUILD
+                // Use macOS-specific input configuration
+                input_error = configure_macos_input_stream();
+#else
                 std::vector<int> properties = {
                     cv::CAP_PROP_HW_ACCELERATION, 1,
                     cv::CAP_PROP_HW_ACCELERATION_USE_OPENCL, 1
@@ -53,6 +76,7 @@ namespace clt
                 m_InputStream = cv::VideoCapture(source.string(), cv::CAP_FFMPEG, properties);
                 if(!m_InputStream.isOpened())
                     input_error = cv::format("Failed to open the input video \'%s\'", source.string().c_str());
+#endif
             }
             else if constexpr(std::is_same_v<source_type, uint32_t>)
             {
@@ -97,6 +121,10 @@ namespace clt
         if(!m_Configuration.output_target.has_value())
             return "Could not create output stream, no target was specified";
 
+#ifdef MACOS_BUILD
+        // Use macOS-specific output configuration
+        return configure_macos_output_stream(frame_size);
+#else
         try {
             std::vector<int> properties = {
                 cv::VideoWriterProperties::VIDEOWRITER_PROP_HW_ACCELERATION, 1,
@@ -134,6 +162,7 @@ namespace clt
         }
 
         return std::nullopt;
+#endif
     }
 
 //---------------------------------------------------------------------------------------------------------------------
@@ -373,6 +402,153 @@ namespace clt
 
         return bar;
     }
+
+//---------------------------------------------------------------------------------------------------------------------
+
+#ifdef MACOS_BUILD
+    std::optional<std::string> VideoProcessor::initialize_macos_video_support()
+    {
+        if (!clt::macos::VideoFormatSupport::initialize())
+        {
+            return "Failed to initialize macOS video format support";
+        }
+        return std::nullopt;
+    }
+
+    std::optional<std::string> VideoProcessor::configure_macos_input_stream()
+    {
+        auto input_path = std::get<std::filesystem::path>(m_Configuration.input_source);
+        
+        // Normalize and validate the input path
+        std::string normalized_path = clt::macos::PathProcessor::normalize_path(input_path);
+        if (!clt::macos::PathProcessor::validate_video_path(normalized_path))
+        {
+            return cv::format("Invalid video file path: \'%s\'", normalized_path.c_str());
+        }
+
+        // Check path permissions
+        if (!clt::macos::PathProcessor::check_path_permissions(normalized_path, false))
+        {
+            return cv::format("Cannot read video file: \'%s\' (permission denied)", normalized_path.c_str());
+        }
+
+        // Detect video format and get optimal settings
+        auto format_info = clt::macos::VideoFormatSupport::detect_format(normalized_path);
+        if (!format_info.has_value())
+        {
+            return cv::format("Unsupported video format: \'%s\'", normalized_path.c_str());
+        }
+
+        // Get hardware acceleration properties
+        std::vector<int> properties = clt::macos::HardwareAcceleration::get_hardware_acceleration_properties(
+            1920, 1080, // Default resolution for property calculation
+            cv::VideoWriter::fourcc('H','2','6','4') // Default codec
+        );
+
+        m_DeviceCapture = false;
+        m_InputStream = cv::VideoCapture(normalized_path, cv::CAP_FFMPEG, properties);
+        
+        if (!m_InputStream.isOpened())
+        {
+            return cv::format("Failed to open video file: \'%s\'", normalized_path.c_str());
+        }
+
+        // Enable hardware decoding if available
+        clt::macos::HardwareAcceleration::enable_hardware_decoding(m_InputStream);
+
+        return std::nullopt;
+    }
+
+    std::optional<std::string> VideoProcessor::configure_macos_output_stream(const cv::Size frame_size)
+    {
+        auto output_path = *m_Configuration.output_target;
+        
+        // Normalize and validate the output path
+        std::string normalized_path = clt::macos::PathProcessor::normalize_path(output_path);
+        
+        // Check if we can write to the output directory
+        auto parent_path = std::filesystem::path(normalized_path).parent_path();
+        if (!clt::macos::PathProcessor::check_path_permissions(parent_path, true))
+        {
+            return cv::format("Cannot write to directory: \'%s\' (permission denied)", parent_path.string().c_str());
+        }
+
+        // Get native codec recommendation for the output format
+        std::string extension = output_path.extension().string();
+        auto codec_recommendation = clt::macos::VideoFormatSupport::get_native_codec_recommendation(extension);
+        
+        int output_codec;
+        if (codec_recommendation.has_value() && m_Configuration.output_codec.has_value())
+        {
+            // Use user-specified codec
+            output_codec = *m_Configuration.output_codec;
+        }
+        else if (codec_recommendation.has_value())
+        {
+            // Use recommended native codec
+            output_codec = clt::macos::VideoFormatSupport::avfoundation_codec_to_opencv_fourcc(codec_recommendation->fourcc);
+            if (output_codec == -1)
+            {
+                // Fallback to input codec
+                output_codec = static_cast<int>(m_InputStream.get(cv::CAP_PROP_FOURCC));
+            }
+        }
+        else
+        {
+            // Fallback to input codec
+            output_codec = static_cast<int>(m_InputStream.get(cv::CAP_PROP_FOURCC));
+        }
+
+        // Get hardware acceleration properties for encoding
+        std::vector<int> properties = clt::macos::HardwareAcceleration::get_hardware_acceleration_properties(
+            frame_size.width, frame_size.height, output_codec
+        );
+
+        try {
+            m_OutputStream = cv::VideoWriter(
+                normalized_path,
+                cv::CAP_FFMPEG,
+                output_codec,
+                m_Configuration.output_framerate.value_or(
+                    std::max(m_InputStream.get(cv::CAP_PROP_FPS), 1.0)
+                ),
+                frame_size,
+                properties
+            );
+        }
+        catch(std::exception& e)
+        {
+            return cv::format(
+                "Failed to create output stream with error: \'%s\'",
+                e.what()
+            );
+        }
+
+        // If stream is still not opened, then creation failed
+        if (!m_OutputStream.isOpened())
+        {
+            return cv::format(
+                "Failed to create output stream at: \'%s\'",
+                normalized_path.c_str()
+            );
+        }
+
+        // Enable hardware encoding if available
+        clt::macos::HardwareAcceleration::enable_hardware_encoding(m_OutputStream);
+
+        return std::nullopt;
+    }
+
+    void VideoProcessor::setup_macos_parallel_processing()
+    {
+        clt::macos::ParallelProcessing::initialize();
+    }
+
+    void VideoProcessor::cleanup_macos_parallel_processing()
+    {
+        clt::macos::ParallelProcessing::release();
+    }
+#endif
 
 //---------------------------------------------------------------------------------------------------------------------
 

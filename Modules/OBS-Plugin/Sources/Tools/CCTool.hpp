@@ -18,7 +18,7 @@
 #pragma once
 
 #include <util/config-file.h>
-#include <LiveVisionKit.hpp>
+#include <OpenVisionKit.hpp>
 #include <optional>
 #include <string>
 

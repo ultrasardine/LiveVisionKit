@@ -19,7 +19,7 @@
 
 #include "OptionParser.hpp"
 
-#include <LiveVisionKit.hpp>
+#include <OpenVisionKit.hpp>
 #include <deque>
 
 namespace clt

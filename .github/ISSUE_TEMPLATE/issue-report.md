@@ -8,7 +8,7 @@ assignees: ''
 ---
 
 **System/Software Setup**
- - **LiveVisionKit Version:** *The version of LiveVisionKit in use.*
+ - **OpenVisionKit Version:** *The version of OpenVisionKit in use.*
  - **OBS Studio Version:** *The version of OBS Studio in use.*
  - **OS:** *Windows 10, Windows 11, or the specific Linux distribution.*
  - **GPU:** *The graphics card and graphics driver version in use.*

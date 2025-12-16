@@ -99,6 +99,17 @@ namespace clt
         std::optional<std::string> input_format;
         if(std::filesystem::path path = input; path.has_filename() && path.has_extension())
         {
+#ifdef MACOS_BUILD
+            // Normalize path for macOS
+            std::string normalized_path = clt::macos::PathProcessor::normalize_path(path);
+            path = std::filesystem::path(normalized_path);
+            
+            // Validate video path on macOS
+            if (!clt::macos::PathProcessor::validate_video_path(path))
+            {
+                return cv::format("Invalid video file path: \'%s\'", path.string().c_str());
+            }
+#endif
             // Input is file path
             input_source = path;
         }
@@ -124,6 +135,18 @@ namespace clt
             auto output = std::string(arguments.front());
             if(std::filesystem::path path = output; path.has_filename() && path.has_extension())
             {
+#ifdef MACOS_BUILD
+                // Normalize output path for macOS
+                std::string normalized_path = clt::macos::PathProcessor::normalize_path(path);
+                path = std::filesystem::path(normalized_path);
+                
+                // Check write permissions for output directory
+                auto parent_path = path.parent_path();
+                if (!clt::macos::PathProcessor::check_path_permissions(parent_path, true))
+                {
+                    return cv::format("Cannot write to directory: \'%s\' (permission denied)", parent_path.string().c_str());
+                }
+#endif
                 // If the input was a video file, restrict the output to match the file format.
                 // This is not an encoding tool, so we can make things easier on ourselves here.
                 if(input_format.has_value() && *input_format != path.extension())

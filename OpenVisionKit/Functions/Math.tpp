@@ -22,6 +22,11 @@
 
 #include "Directives.hpp"
 
+// Temporarily disable macOS acceleration for checkpoint
+// #ifdef MACOS_BUILD
+// #include "OpenCL/MacOSAcceleration.hpp"
+// #endif
+
 namespace lvk
 {
 
@@ -267,3 +272,136 @@ namespace lvk
 //---------------------------------------------------------------------------------------------------------------------
 
 }
+//---------------------------------------------------------------------------------------------------------------------
+
+/* Temporarily disable macOS-specific optimizations for checkpoint
+#ifdef MACOS_BUILD
+    // macOS-specific optimized math operations using Accelerate framework
+    template<typename T>
+    inline void accelerated_vector_add(const std::vector<T>& a, const std::vector<T>& b, std::vector<T>& result)
+    {
+        static_assert(std::is_same_v<T, float>, "Accelerate optimization currently supports float only");
+        
+        if (a.size() != b.size())
+        {
+            LVK_ASSERT(false && "Vector sizes must match for accelerated operations");
+            return;
+        }
+        
+        result.resize(a.size());
+        
+#ifdef MACOS_BUILD
+        auto& accelerate = ocl::macos::AccelerateIntegration::instance();
+        if (accelerate.is_available())
+        {
+            accelerate.vector_add(a.data(), b.data(), result.data(), a.size());
+        }
+#endif
+        else
+        {
+            // CPU fallback
+            for (size_t i = 0; i < a.size(); ++i)
+            {
+                result[i] = a[i] + b[i];
+            }
+        }
+    }
+
+//---------------------------------------------------------------------------------------------------------------------
+
+    template<typename T>
+    inline void accelerated_vector_multiply(const std::vector<T>& a, const std::vector<T>& b, std::vector<T>& result)
+    {
+        static_assert(std::is_same_v<T, float>, "Accelerate optimization currently supports float only");
+        
+        if (a.size() != b.size())
+        {
+            LVK_ASSERT(false && "Vector sizes must match for accelerated operations");
+            return;
+        }
+        
+        result.resize(a.size());
+        
+#ifdef MACOS_BUILD
+        auto& accelerate = ocl::macos::AccelerateIntegration::instance();
+        if (accelerate.is_available())
+        {
+            accelerate.vector_multiply(a.data(), b.data(), result.data(), a.size());
+        }
+#endif
+        else
+        {
+            // CPU fallback
+            for (size_t i = 0; i < a.size(); ++i)
+            {
+                result[i] = a[i] * b[i];
+            }
+        }
+    }
+
+//---------------------------------------------------------------------------------------------------------------------
+
+    template<typename T, typename Func>
+    inline void parallel_for_2d_gcd(size_t width, size_t height, Func&& func)
+    {
+#ifdef MACOS_BUILD
+        auto& gcd = ocl::macos::GCDParallelism::instance();
+        if (gcd.is_available())
+        {
+            gcd.parallel_for_2d(width, height, std::forward<Func>(func));
+        }
+#endif
+        else
+        {
+            // CPU fallback - sequential processing
+            for (size_t y = 0; y < height; ++y)
+            {
+                for (size_t x = 0; x < width; ++x)
+                {
+                    func(x, y);
+                }
+            }
+        }
+    }
+
+//---------------------------------------------------------------------------------------------------------------------
+
+    template<typename T>
+    inline void accelerated_matrix_multiply(const std::vector<T>& a, const std::vector<T>& b, 
+                                          std::vector<T>& result, size_t m, size_t n, size_t k)
+    {
+        static_assert(std::is_same_v<T, float>, "Accelerate optimization currently supports float only");
+        
+        LVK_ASSERT(a.size() == m * k && "Matrix A dimensions don't match");
+        LVK_ASSERT(b.size() == k * n && "Matrix B dimensions don't match");
+        
+        result.resize(m * n);
+        
+#ifdef MACOS_BUILD
+        auto& accelerate = ocl::macos::AccelerateIntegration::instance();
+        if (accelerate.is_available())
+        {
+            accelerate.matrix_multiply(a.data(), b.data(), result.data(), m, n, k);
+        }
+#endif
+        else
+        {
+            // CPU fallback - basic matrix multiplication
+            std::fill(result.begin(), result.end(), T(0));
+            
+            for (size_t i = 0; i < m; ++i)
+            {
+                for (size_t j = 0; j < n; ++j)
+                {
+                    for (size_t l = 0; l < k; ++l)
+                    {
+                        result[i * n + j] += a[i * k + l] * b[l * n + j];
+                    }
+                }
+            }
+        }
+    }
+#endif // MACOS_BUILD
+*/
+
+//---------------------------------------------------------------------------------------------------------------------

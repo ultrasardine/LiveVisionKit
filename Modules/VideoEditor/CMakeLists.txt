@@ -61,3 +61,62 @@ target_sources(
         FilterParser.tpp
 )
 
+# Add macOS-specific sources
+if(APPLE)
+    target_sources(
+        ${PROJECT_NAME}
+        PRIVATE
+            MacOSVideoSupport.hpp
+            MacOSVideoSupport.mm
+    )
+    
+    # Link macOS frameworks
+    find_library(AVFOUNDATION_FRAMEWORK AVFoundation)
+    find_library(VIDEOTOOLBOX_FRAMEWORK VideoToolbox)
+    find_library(COREFOUNDATION_FRAMEWORK CoreFoundation)
+    find_library(FOUNDATION_FRAMEWORK Foundation)
+    
+    if(AVFOUNDATION_FRAMEWORK)
+        target_link_libraries(${PROJECT_NAME} ${AVFOUNDATION_FRAMEWORK})
+        message(STATUS "${MI}Linked AVFoundation framework for video editor")
+    endif()
+    
+    if(VIDEOTOOLBOX_FRAMEWORK)
+        target_link_libraries(${PROJECT_NAME} ${VIDEOTOOLBOX_FRAMEWORK})
+        message(STATUS "${MI}Linked VideoToolbox framework for video editor")
+    endif()
+    
+    if(COREFOUNDATION_FRAMEWORK)
+        target_link_libraries(${PROJECT_NAME} ${COREFOUNDATION_FRAMEWORK})
+    endif()
+    
+    if(FOUNDATION_FRAMEWORK)
+        target_link_libraries(${PROJECT_NAME} ${FOUNDATION_FRAMEWORK})
+    endif()
+    
+    # Configure macOS security features
+    # **Feature: macos-build-support, Property 15: Security configuration compliance**
+    # **Validates: Requirements 8.1, 8.3**
+    if(COMMAND configure_macos_security)
+        configure_macos_security(${PROJECT_NAME}
+            ENABLE_HARDENED_RUNTIME
+            ENTITLEMENTS_FILE "${CMAKE_CURRENT_SOURCE_DIR}/VideoEditor.entitlements"
+        )
+    endif()
+    
+    # Configure SIP-compatible library loading
+    if(COMMAND configure_sip_compatible_loading)
+        configure_sip_compatible_loading(${PROJECT_NAME})
+    endif()
+    
+    # Add security compiler flags
+    if(COMMAND add_security_compiler_flags)
+        add_security_compiler_flags(${PROJECT_NAME})
+    endif()
+    
+    # Add post-build code signing if enabled
+    if(COMMAND add_post_build_code_signing)
+        add_post_build_code_signing(${PROJECT_NAME})
+    endif()
+endif()
+

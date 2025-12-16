@@ -18,7 +18,7 @@
 #pragma once
 
 #include <obs-module.h>
-#include <LiveVisionKit.hpp>
+#include <OpenVisionKit.hpp>
 
 namespace lvk
 {

@@ -19,7 +19,7 @@
 
 #include <memory>
 #include <obs-module.h>
-#include <LiveVisionKit.hpp>
+#include <OpenVisionKit.hpp>
 #include <opencv2/opencv.hpp>
 
 namespace lvk

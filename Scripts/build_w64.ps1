@@ -44,7 +44,7 @@ cmake -DBUILD_OBS_PLUGIN="$plugin" `
       ..
 
 
-# Compile LiveVisionKit and install it to the build folder. 
+# Compile OpenVisionKit and install it to the build folder. 
 cmake --build . --target ALL_BUILD --config "$config"
 cmake --install . --config "$config"
 

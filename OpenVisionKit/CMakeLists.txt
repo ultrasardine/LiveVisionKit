@@ -46,7 +46,7 @@ target_link_libraries(
     Eigen3::Eigen
 )
 
-if(UNIX)
+if(UNIX AND NOT MACOS_BUILD)
 # Required by opencv_highgui on Linux
 target_link_libraries(
     ${PROJECT_NAME}
@@ -57,6 +57,37 @@ target_link_libraries(
     Qt5::Concurrent
     Qt5::OpenGL
 )
+elseif(MACOS_BUILD)
+# Required by opencv_highgui and LVK on macOS
+target_link_libraries(
+    ${PROJECT_NAME}
+    Qt5::Core
+    Qt5::Gui
+    Qt5::Widgets
+    Qt5::Test
+    Qt5::Concurrent
+    Qt5::OpenGL
+)
+
+# Link macOS-specific frameworks
+if(COREFOUNDATION_FRAMEWORK)
+    target_link_libraries(${PROJECT_NAME} ${COREFOUNDATION_FRAMEWORK})
+endif()
+if(COREVIDEO_FRAMEWORK)
+    target_link_libraries(${PROJECT_NAME} ${COREVIDEO_FRAMEWORK})
+endif()
+if(ACCELERATE_FRAMEWORK)
+    target_link_libraries(${PROJECT_NAME} ${ACCELERATE_FRAMEWORK})
+endif()
+if(OPENCL_FRAMEWORK)
+    target_link_libraries(${PROJECT_NAME} ${OPENCL_FRAMEWORK})
+endif()
+if(METAL_FRAMEWORK)
+    target_link_libraries(${PROJECT_NAME} ${METAL_FRAMEWORK})
+endif()
+if(METALPERFORMANCESHADERS_FRAMEWORK)
+    target_link_libraries(${PROJECT_NAME} ${METALPERFORMANCESHADERS_FRAMEWORK})
+endif()
 endif()
 
 
@@ -78,12 +109,17 @@ install(
 target_sources(
     ${PROJECT_NAME}
     PRIVATE
-        LiveVisionKit.hpp
+        OpenVisionKit.hpp
         Directives.hpp
         Directives.cpp
 
         Functions/OpenCL/Kernels.hpp
         Functions/OpenCL/Kernels.cpp
+        # Temporarily disable macOS-specific files for checkpoint
+        # Functions/OpenCL/MacOSAcceleration.hpp
+        # Functions/OpenCL/MacOSAcceleration.mm
+        # Functions/OpenCL/CoreVideoIntegration.hpp
+        # Functions/OpenCL/CoreVideoIntegration.mm
         Functions/Extensions.hpp
         Functions/Extensions.cpp
         Functions/Container.hpp
@@ -156,3 +192,47 @@ target_sources(
         Vision/PathSmoother.cpp
         Vision/PathSmoother.hpp
 )
+
+# Add macOS-specific privacy and security sources
+if(MACOS_BUILD)
+    # Enable Objective-C++ for macOS-specific files
+    enable_language(OBJCXX)
+    
+    target_sources(${PROJECT_NAME} PRIVATE
+        Utility/MacOSPrivacy.hpp
+        Utility/MacOSPrivacy.mm
+    )
+    
+    # Link AVFoundation for privacy permission handling
+    find_library(AVFOUNDATION_FRAMEWORK AVFoundation)
+    find_library(APPKIT_FRAMEWORK AppKit)
+    
+    if(AVFOUNDATION_FRAMEWORK)
+        target_link_libraries(${PROJECT_NAME} ${AVFOUNDATION_FRAMEWORK})
+    endif()
+    
+    if(APPKIT_FRAMEWORK)
+        target_link_libraries(${PROJECT_NAME} ${APPKIT_FRAMEWORK})
+    endif()
+    
+    # Install privacy manifest for App Store compliance
+    install(
+        FILES ${CMAKE_CURRENT_SOURCE_DIR}/PrivacyInfo.xcprivacy
+        DESTINATION ${LVK_INCLUDES_DIR}/OpenVisionKit
+    )
+    
+    # Configure macOS security features for core library
+    if(COMMAND configure_macos_security)
+        configure_macos_security(${PROJECT_NAME}
+            ENABLE_HARDENED_RUNTIME
+        )
+    endif()
+    
+    if(COMMAND configure_sip_compatible_loading)
+        configure_sip_compatible_loading(${PROJECT_NAME})
+    endif()
+    
+    if(COMMAND add_security_compiler_flags)
+        add_security_compiler_flags(${PROJECT_NAME})
+    endif()
+endif()

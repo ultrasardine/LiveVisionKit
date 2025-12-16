@@ -22,7 +22,7 @@
 #include "Utility/Logging.hpp"
 #include "Utility/Locale.hpp"
 
-#include <LiveVisionKit.hpp>
+#include <OpenVisionKit.hpp>
 
 namespace lvk
 {

@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+    OpenVisionKit Privacy Manifest
+    
+    This file declares the privacy practices of OpenVisionKit for App Store
+    compliance with Apple's privacy requirements (introduced in iOS 17 / macOS 14).
+    
+    **Feature: macos-build-support, Property 15: Security configuration compliance**
+    **Validates: Requirements 8.5**
+-->
+<plist version="1.0">
+<dict>
+    <!-- 
+        Tracking Declaration
+        OpenVisionKit does not track users across apps or websites.
+    -->
+    <key>NSPrivacyTracking</key>
+    <false/>
+    
+    <!-- 
+        Tracking Domains
+        No tracking domains are used.
+    -->
+    <key>NSPrivacyTrackingDomains</key>
+    <array/>
+    
+    <!-- 
+        Collected Data Types
+        OpenVisionKit does not collect or transmit user data.
+        Video processing is performed locally on the device.
+    -->
+    <key>NSPrivacyCollectedDataTypes</key>
+    <array/>
+    
+    <!-- 
+        Accessed API Types
+        These are the privacy-sensitive APIs used by OpenVisionKit.
+    -->
+    <key>NSPrivacyAccessedAPITypes</key>
+    <array>
+        <!-- 
+            File Timestamp APIs
+            Used for: Reading video file metadata and timestamps
+            Reason: C617.1 - Declare use of file timestamp APIs for app functionality
+        -->
+        <dict>
+            <key>NSPrivacyAccessedAPIType</key>
+            <string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+            <key>NSPrivacyAccessedAPITypeReasons</key>
+            <array>
+                <string>C617.1</string>
+            </array>
+        </dict>
+        
+        <!-- 
+            System Boot Time APIs
+            Used for: Performance timing and profiling
+            Reason: 35F9.1 - Measure elapsed time for performance optimization
+        -->
+        <dict>
+            <key>NSPrivacyAccessedAPIType</key>
+            <string>NSPrivacyAccessedAPICategorySystemBootTime</string>
+            <key>NSPrivacyAccessedAPITypeReasons</key>
+            <array>
+                <string>35F9.1</string>
+            </array>
+        </dict>
+    </array>
+</dict>
+</plist>

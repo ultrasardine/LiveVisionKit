@@ -20,6 +20,11 @@
 #include "OpenCL/Kernels.hpp"
 #include "Directives.hpp"
 
+#ifdef MACOS_BUILD
+#include "OpenCL/MacOSAcceleration.hpp"
+#include "OpenCL/CoreVideoIntegration.hpp"
+#endif
+
 namespace lvk
 {
 
@@ -164,6 +169,26 @@ namespace lvk
             src.copyTo(dst);
             return;
         }
+
+#ifdef MACOS_BUILD
+        // Use macOS GPU acceleration manager for optimal performance
+        auto& gpu_manager = ocl::macos::GPUAccelerationManager::instance();
+        bool use_macos_acceleration = gpu_manager.execute_accelerated("image_processing", [&]() -> bool {
+            // Try macOS-specific optimizations first
+            auto& accelerate = ocl::macos::AccelerateIntegration::instance();
+            if (accelerate.is_available())
+            {
+                // Use Accelerate framework for math operations if beneficial
+                // This is a placeholder for potential Accelerate-optimized scaling
+            }
+            
+            // Fall back to standard OpenCL implementation
+            return false; // Let it fall through to standard implementation
+        });
+        
+        if (use_macos_acceleration)
+            return;
+#endif
 
         // FSR program has yuv and bgr versions for different luma calculations.
         static auto program_yuv = ocl::load_program("fsr", ocl::src::fsr_source, "-D YUV_INPUT");

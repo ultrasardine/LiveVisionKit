@@ -26,7 +26,7 @@ namespace lvk::log
 	template<typename... T>
 	void log(const int log_level, const std::string& format, T... args)
 	{
-		blog(log_level, ("[LiveVisionKit] " + format).c_str(), args...);
+		blog(log_level, ("[OpenVisionKit] " + format).c_str(), args...);
 	}
 
 //---------------------------------------------------------------------------------------------------------------------
@@ -43,7 +43,7 @@ namespace lvk::log
 	template<typename... T>
 	void log_block(const int log_level, const std::string& format, T... args)
 	{
-		blog(log_level, "==== [LiveVisionKit] ======================================");
+		blog(log_level, "==== [OpenVisionKit] ======================================");
 		blog(log_level, format.c_str(), args...);
 		blog(log_level, "===========================================================");
 	}

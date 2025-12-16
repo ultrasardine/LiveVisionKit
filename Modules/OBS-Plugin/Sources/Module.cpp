@@ -21,6 +21,7 @@
 
 #include "Interop/InteropContext.hpp"
 #include "Utility/Logging.hpp"
+#include "Utility/OBSCompatibility.hpp"
 
 #include "Effects/FSREffect.hpp"
 #include "Effects/CASEffect.hpp"
@@ -30,8 +31,19 @@
 OBS_DECLARE_MODULE()
 MODULE_EXPORT const char* obs_module_name(void)
 {
-	return "LiveVisionKit" VERSION;
+	return LVK::OBSCompat::PluginMetadata::getPluginName();
 }
+
+MODULE_EXPORT const char* obs_module_description(void)
+{
+	return LVK::OBSCompat::PluginMetadata::getPluginDescription();
+}
+
+MODULE_EXPORT const char* obs_module_version(void)
+{
+	return LVK::OBSCompat::PluginMetadata::getPluginVersion();
+}
+
 OBS_MODULE_USE_DEFAULT_LOCALE(obs_module_name(), "en-US")
 
 //---------------------------------------------------------------------------------------------------------------------
@@ -75,16 +87,32 @@ void attach_ocl_interop_context(void* param, uint32_t cx, uint32_t cy)
 
 bool obs_module_load()
 {
+    // Check OBS version compatibility
+    if (!LVK::OBSCompat::PluginMetadata::isOBSVersionSupported()) {
+        lvk::log::print("Warning: OBS Studio version may not be fully supported");
+    }
+
+#ifdef __APPLE__
+    // Initialize macOS-specific features
+    if (!LVK::OBSCompat::MacOSCompat::initializeMacOSFeatures()) {
+        lvk::log::print("Warning: Failed to initialize macOS-specific features");
+    }
+#endif
+
     // Add custom assert handler to redirect LVK asserts to OBS
     lvk::context::assert_handler = [](std::string file, std::string function, std::string assertion)
     {
-        bcrash("[LiveVisionKit] %s@%s(..) Failed %s ", file.c_str(), function.c_str(), assertion.c_str());
+        bcrash("[OpenVisionKit] %s@%s(..) Failed %s ", file.c_str(), function.c_str(), assertion.c_str());
     };
 
 	// Detect LVK capabilities
 	const bool has_opencl = cv::ocl::haveOpenCL();
 #ifdef _WIN32
 	const bool has_interop = lvk::ocl::InteropContext::Supported();
+#elif defined(__APPLE__)
+    // On macOS, check for Metal support in newer OBS versions
+    const bool has_metal = LVK::OBSCompat::GraphicsAPI::isMetalSupported();
+    const bool has_interop = has_metal; // Use Metal interop if available
 #else
     const bool has_interop = false; // Disabled due to driver support.
 #endif
@@ -94,12 +122,18 @@ bool obs_module_load()
 	lvk::log::print_block(
 		"Initializing..."
 		"\n    Version: %s"
+		"\n    OBS Min Version: %s"
+		"\n    Graphics API: %s"
 		"\n    OpenCL Support: %s"
-		"\n    OpenCL Interop Support: %s"
+		"\n    Hardware Interop Support: %s"
 		"\n    FSR Effect Loaded: %s"
 		"\n    CAS Effect Loaded: %s"
 		,
-		VERSION,
+		LVK::OBSCompat::PluginMetadata::getPluginVersion(),
+		LVK::OBSCompat::PluginMetadata::getMinOBSVersion(),
+		(LVK::OBSCompat::GraphicsAPI::getCurrentAPI() == LVK::OBSCompat::GraphicsAPI::Type::METAL) ? "Metal" :
+		(LVK::OBSCompat::GraphicsAPI::getCurrentAPI() == LVK::OBSCompat::GraphicsAPI::Type::OPENGL) ? "OpenGL" :
+		(LVK::OBSCompat::GraphicsAPI::getCurrentAPI() == LVK::OBSCompat::GraphicsAPI::Type::DIRECT3D11) ? "Direct3D11" : "Unknown",
 		has_opencl ? "Yes" : "No",
 		has_interop ? "Yes" : "No",
 		has_fsr_effect ? "Yes" : "No",

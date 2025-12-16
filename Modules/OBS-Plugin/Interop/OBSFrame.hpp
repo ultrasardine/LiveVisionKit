@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include <LiveVisionKit.hpp>
+#include <OpenVisionKit.hpp>
 #include <opencv2/core.hpp>
 #include <obs-module.h>
 

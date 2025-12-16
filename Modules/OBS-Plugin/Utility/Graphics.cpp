@@ -17,7 +17,7 @@
 
 #include "Graphics.hpp"
 
-#include <LiveVisionKit.hpp>
+#include <OpenVisionKit.hpp>
 #include "3rdParty/glad.h"
 
 namespace lvk

@@ -11,6 +11,41 @@ set_property(TARGET ${PROJECT_NAME} PROPERTY PROJECT_LABEL "OBS-Plugin")
 set_property(TARGET ${PROJECT_NAME} PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
 set_property(TARGET ${PROJECT_NAME} PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
+# Configure macOS-specific library properties
+if(APPLE)
+    set_target_properties(${PROJECT_NAME} PROPERTIES
+        SUFFIX ".dylib"
+        BUNDLE FALSE
+        MACOSX_RPATH TRUE
+        INSTALL_RPATH "@loader_path"
+    )
+    
+    # Configure macOS security features
+    # **Feature: macos-build-support, Property 15: Security configuration compliance**
+    # **Validates: Requirements 8.1, 8.3**
+    if(COMMAND configure_macos_security)
+        configure_macos_security(${PROJECT_NAME}
+            ENABLE_HARDENED_RUNTIME
+            ENTITLEMENTS_FILE "${CMAKE_CURRENT_SOURCE_DIR}/Data/OpenVisionKit.entitlements"
+        )
+    endif()
+    
+    # Configure SIP-compatible library loading
+    if(COMMAND configure_sip_compatible_loading)
+        configure_sip_compatible_loading(${PROJECT_NAME})
+    endif()
+    
+    # Add security compiler flags
+    if(COMMAND add_security_compiler_flags)
+        add_security_compiler_flags(${PROJECT_NAME})
+    endif()
+    
+    # Add post-build code signing if enabled
+    if(COMMAND add_post_build_code_signing)
+        add_post_build_code_signing(${PROJECT_NAME})
+    endif()
+endif()
+
 # Disable assert checks
 if(DISABLE_CHECKS)
     add_definitions(-DLVK_DISABLE_CHECKS)
@@ -54,6 +89,13 @@ if(WIN32)
         CACHE PATH 
         "The plugin auto-install paths, leading to the root obs-studio directory"
     )
+elseif(APPLE)
+    set(
+        OBS_PLUGIN_AUTO_INSTALL_PATHS 
+        "~/Library/Application Support/obs-studio" 
+        CACHE PATH 
+        "The plugin auto-install paths, leading to the root obs-studio directory"
+    )
 else()
     set(
         OBS_PLUGIN_AUTO_INSTALL_PATHS 
@@ -64,27 +106,170 @@ else()
 endif()
 
 
-# Set the OBS-Studio build path 
+# OBS Studio Detection - Support both system and custom installations
 set(OBS_BUILD_PATH "./Dependencies/obs-studio/build" CACHE PATH "The path to the OBS-Studio build folder")
-if(WIN32)
-    set(OBS_REL_INCLUDE_PATH "/install/include/")
-    set(OBS_REL_LIB_PATH "/install/bin/64bit/obs.lib")
-else()
-    set(OBS_REL_INCLUDE_PATH "/install/include/obs/")
-    set(OBS_REL_LIB_PATH "/install/lib/libobs.so")
+
+# Try to find OBS Studio using pkg-config first (Linux/macOS system installations)
+find_package(PkgConfig QUIET)
+if(PKG_CONFIG_FOUND)
+    pkg_check_modules(OBS_STUDIO QUIET libobs)
 endif()
 
-# Check that the build path exists
-if(OBS_BUILD_PATH STREQUAL "")
-    message(FATAL_ERROR "OBS_BUILD_PATH was not provided!")
+# Set up OBS paths based on detection method
+set(OBS_FOUND FALSE)
+set(OBS_INCLUDE_DIRS "")
+set(OBS_LIBRARIES "")
+
+if(OBS_STUDIO_FOUND)
+    # System installation found via pkg-config
+    set(OBS_FOUND TRUE)
+    set(OBS_INCLUDE_DIRS ${OBS_STUDIO_INCLUDE_DIRS})
+    set(OBS_LIBRARIES ${OBS_STUDIO_LIBRARIES})
+    message(STATUS "${MI}Found OBS-Studio via pkg-config: YES")
+    message(STATUS "${MI}OBS Include Dirs: ${OBS_INCLUDE_DIRS}")
+    message(STATUS "${MI}OBS Libraries: ${OBS_LIBRARIES}")
+elseif(APPLE AND EXISTS "/opt/homebrew/include/obs" AND EXISTS "/opt/homebrew/lib/libobs.dylib")
+    # macOS Homebrew installation
+    set(OBS_FOUND TRUE)
+    set(OBS_INCLUDE_DIRS "/opt/homebrew/include/obs")
+    set(OBS_LIBRARIES "/opt/homebrew/lib/libobs.dylib")
+    message(STATUS "${MI}Found OBS-Studio via Homebrew: YES")
+elseif(APPLE AND EXISTS "/usr/local/include/obs" AND EXISTS "/usr/local/lib/libobs.dylib")
+    # macOS Intel Homebrew installation
+    set(OBS_FOUND TRUE)
+    set(OBS_INCLUDE_DIRS "/usr/local/include/obs")
+    set(OBS_LIBRARIES "/usr/local/lib/libobs.dylib")
+    message(STATUS "${MI}Found OBS-Studio via Intel Homebrew: YES")
 else()
-    if(NOT EXISTS ${OBS_BUILD_PATH}${OBS_REL_INCLUDE_PATH})
-        message(FATAL_ERROR "Could not find OBS-Studio includes - Check OBS_BUILD_PATH")
+    # Fall back to custom build path
+    if(WIN32)
+        set(OBS_REL_INCLUDE_PATH "/install/include/")
+        set(OBS_REL_LIB_PATH "/install/bin/64bit/obs.lib")
+    elseif(APPLE)
+        set(OBS_REL_INCLUDE_PATH "/install/include/obs/")
+        set(OBS_REL_LIB_PATH "/install/lib/libobs.dylib")
+    else()
+        set(OBS_REL_INCLUDE_PATH "/install/include/obs/")
+        set(OBS_REL_LIB_PATH "/install/lib/libobs.so")
     endif()
-    if(NOT EXISTS ${OBS_BUILD_PATH}${OBS_REL_LIB_PATH})
-        message(FATAL_ERROR "Could not find OBS-Studio libraries - Check OBS_BUILD_PATH")
+
+    # Check that the build path exists
+    if(OBS_BUILD_PATH STREQUAL "")
+        message(FATAL_ERROR "OBS_BUILD_PATH was not provided and system OBS not found!")
+    else()
+        if(EXISTS ${OBS_BUILD_PATH}${OBS_REL_INCLUDE_PATH} AND EXISTS ${OBS_BUILD_PATH}${OBS_REL_LIB_PATH})
+            set(OBS_FOUND TRUE)
+            set(OBS_INCLUDE_DIRS "${OBS_BUILD_PATH}${OBS_REL_INCLUDE_PATH}")
+            set(OBS_LIBRARIES "${OBS_BUILD_PATH}${OBS_REL_LIB_PATH}")
+            message(STATUS "${MI}Found OBS-Studio via custom build: YES")
+        else()
+            message(FATAL_ERROR "Could not find OBS-Studio includes or libraries - Check OBS_BUILD_PATH or install system OBS")
+        endif()
     endif()
-    message(STATUS "${MI}Found OBS-Studio: YES")
+endif()
+
+if(NOT OBS_FOUND)
+    message(FATAL_ERROR "OBS Studio not found! Please install obs-studio-dev (Linux) or obs-studio (macOS) or provide OBS_BUILD_PATH")
+endif()
+
+# OBS Version Detection and Compatibility
+function(detect_obs_version OBS_INCLUDE_PATH OUTPUT_VAR)
+    # Try different possible locations for obs-config.h
+    set(POSSIBLE_CONFIG_FILES
+        "${OBS_INCLUDE_PATH}/obs-config.h"
+        "${OBS_INCLUDE_PATH}/../include/obs/obs-config.h"
+        "${OBS_INCLUDE_PATH}/obs/obs-config.h"
+    )
+    
+    set(OBS_VERSION_FILE "")
+    foreach(CONFIG_FILE ${POSSIBLE_CONFIG_FILES})
+        if(EXISTS ${CONFIG_FILE})
+            set(OBS_VERSION_FILE ${CONFIG_FILE})
+            break()
+        endif()
+    endforeach()
+    
+    if(OBS_VERSION_FILE AND EXISTS ${OBS_VERSION_FILE})
+        file(READ ${OBS_VERSION_FILE} OBS_CONFIG_CONTENT)
+        
+        # Extract version from OBS_VERSION_CANONICAL or similar defines
+        string(REGEX MATCH "#define[ \t]+OBS_VERSION_CANONICAL[ \t]+\"([0-9]+\\.[0-9]+\\.[0-9]+)\"" 
+               VERSION_MATCH "${OBS_CONFIG_CONTENT}")
+        
+        if(VERSION_MATCH)
+            string(REGEX REPLACE "#define[ \t]+OBS_VERSION_CANONICAL[ \t]+\"([0-9]+\\.[0-9]+\\.[0-9]+)\"" 
+                   "\\1" DETECTED_VERSION "${VERSION_MATCH}")
+            set(${OUTPUT_VAR} ${DETECTED_VERSION} PARENT_SCOPE)
+        else()
+            # Fallback: try to extract from OBS_VERSION_MAJOR/MINOR/PATCH
+            string(REGEX MATCH "#define[ \t]+OBS_VERSION_MAJOR[ \t]+([0-9]+)" MAJOR_MATCH "${OBS_CONFIG_CONTENT}")
+            string(REGEX MATCH "#define[ \t]+OBS_VERSION_MINOR[ \t]+([0-9]+)" MINOR_MATCH "${OBS_CONFIG_CONTENT}")
+            string(REGEX MATCH "#define[ \t]+OBS_VERSION_PATCH[ \t]+([0-9]+)" PATCH_MATCH "${OBS_CONFIG_CONTENT}")
+            
+            if(MAJOR_MATCH AND MINOR_MATCH AND PATCH_MATCH)
+                string(REGEX REPLACE "#define[ \t]+OBS_VERSION_MAJOR[ \t]+([0-9]+)" "\\1" MAJOR "${MAJOR_MATCH}")
+                string(REGEX REPLACE "#define[ \t]+OBS_VERSION_MINOR[ \t]+([0-9]+)" "\\1" MINOR "${MINOR_MATCH}")
+                string(REGEX REPLACE "#define[ \t]+OBS_VERSION_PATCH[ \t]+([0-9]+)" "\\1" PATCH "${PATCH_MATCH}")
+                set(${OUTPUT_VAR} "${MAJOR}.${MINOR}.${PATCH}" PARENT_SCOPE)
+            else()
+                set(${OUTPUT_VAR} "unknown" PARENT_SCOPE)
+            endif()
+        endif()
+    else()
+        # Try to get version from pkg-config if available
+        if(PKG_CONFIG_FOUND AND OBS_STUDIO_FOUND)
+            set(${OUTPUT_VAR} ${OBS_STUDIO_VERSION} PARENT_SCOPE)
+        else()
+            set(${OUTPUT_VAR} "unknown" PARENT_SCOPE)
+        endif()
+    endif()
+endfunction()
+
+# Detect OBS version using the include directory
+detect_obs_version("${OBS_INCLUDE_DIRS}" OBS_DETECTED_VERSION)
+message(STATUS "${MI}OBS Studio Version: ${OBS_DETECTED_VERSION}")
+
+# Define minimum supported OBS version
+set(OBS_MIN_VERSION "29.0.0")
+set(OBS_MAX_TESTED_VERSION "30.2.0")
+
+# Version compatibility check
+if(NOT OBS_DETECTED_VERSION STREQUAL "unknown")
+    if(OBS_DETECTED_VERSION VERSION_LESS OBS_MIN_VERSION)
+        message(WARNING "OBS Studio version ${OBS_DETECTED_VERSION} is older than minimum supported version ${OBS_MIN_VERSION}. Plugin may not work correctly.")
+    elseif(OBS_DETECTED_VERSION VERSION_GREATER OBS_MAX_TESTED_VERSION)
+        message(WARNING "OBS Studio version ${OBS_DETECTED_VERSION} is newer than tested version ${OBS_MAX_TESTED_VERSION}. Plugin compatibility is not guaranteed.")
+    else()
+        message(STATUS "${MI}OBS Studio version is compatible")
+    endif()
+endif()
+
+# Set compatibility flags based on OBS version
+if(OBS_DETECTED_VERSION VERSION_GREATER_EQUAL "30.0.0")
+    add_definitions(-DOBS_VERSION_30_PLUS)
+    message(STATUS "${MI}Enabling OBS 30+ compatibility features")
+endif()
+
+if(OBS_DETECTED_VERSION VERSION_GREATER_EQUAL "29.1.0")
+    add_definitions(-DOBS_VERSION_29_1_PLUS)
+endif()
+
+# macOS-specific OBS compatibility
+if(APPLE)
+    # Handle macOS-specific OBS API differences
+    if(OBS_DETECTED_VERSION VERSION_GREATER_EQUAL "30.0.0")
+        add_definitions(-DOBS_MACOS_METAL_SUPPORT)
+        message(STATUS "${MI}Enabling macOS Metal support for OBS 30+")
+    endif()
+    
+    # Set macOS deployment target based on OBS requirements
+    if(OBS_DETECTED_VERSION VERSION_GREATER_EQUAL "30.0.0")
+        set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version for OBS 30+")
+    else()
+        set(CMAKE_OSX_DEPLOYMENT_TARGET "10.15" CACHE STRING "Minimum macOS version for OBS 29.x")
+    endif()
+    
+    message(STATUS "${MI}macOS Deployment Target: ${CMAKE_OSX_DEPLOYMENT_TARGET}")
 endif()
 
 
@@ -94,20 +279,20 @@ target_include_directories(
     PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR} 
     ${LVK_CORE_DIR}
-    ${OBS_BUILD_PATH}${OBS_REL_INCLUDE_PATH}
+    ${OBS_INCLUDE_DIRS}
 )
 
 # Link all dependencies
 add_dependencies(${PROJECT_NAME} lvk-core)
 target_link_libraries(
     ${PROJECT_NAME}
-    ${OBS_BUILD_PATH}${OBS_REL_LIB_PATH}
+    ${OBS_LIBRARIES}
     lvk-core
 )
 
 
 # Set up install rules
-set(PLUGIN_RELEASE_NAME "LiveVisionKit-${PROJECT_VERSION}-${CMAKE_SYSTEM_NAME}")
+set(PLUGIN_RELEASE_NAME "OpenVisionKit-${PROJECT_VERSION}-${CMAKE_SYSTEM_NAME}")
 set(PLUGIN_DEBUG_RELEASE_NAME "DEBUG_${PLUGIN_RELEASE_NAME}")
 
 set(PLUGIN_RELEASE_ROOT_DIR "${LVK_RELEASES_DIR}/${PLUGIN_RELEASE_NAME}/obs-studio")
@@ -153,6 +338,49 @@ if(WIN32)
         DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/Data/
         CONFIGURATIONS Debug
         DESTINATION "${PLUGIN_DEBUG_RELEASE_ROOT_DIR}${PLUGIN_RELEASE_DATA_DIR}"
+    )
+elseif(APPLE)
+    # macOS OBS plugin structure: plugins/plugin-name.plugin/Contents/MacOS/ for binaries
+    # and plugins/plugin-name.plugin/Contents/Resources/ for data
+    set(PLUGIN_RELEASE_BIN_DIR "/plugins/${PROJECT_NAME}.plugin/Contents/MacOS") 
+    set(PLUGIN_RELEASE_DATA_DIR "/plugins/${PROJECT_NAME}.plugin/Contents/Resources") 
+
+    # Optimized
+    foreach(INSTALL_DIR ${PLUGIN_RELEASE_INSTALL_DIRS})
+        install(
+            TARGETS ${PROJECT_NAME}
+            CONFIGURATIONS Release MinSizeRel RelWithDebInfo
+            LIBRARY DESTINATION "${INSTALL_DIR}${PLUGIN_RELEASE_BIN_DIR}"
+        )
+        install(
+            DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/Data/
+            CONFIGURATIONS Release MinSizeRel RelWithDebInfo
+            DESTINATION "${INSTALL_DIR}${PLUGIN_RELEASE_DATA_DIR}"
+        )
+        # Install Info.plist for macOS bundle structure
+        install(
+            FILES ${CMAKE_CURRENT_SOURCE_DIR}/Data/Info.plist
+            CONFIGURATIONS Release MinSizeRel RelWithDebInfo
+            DESTINATION "${INSTALL_DIR}/plugins/${PROJECT_NAME}.plugin/Contents"
+        )
+    endforeach()
+
+    # Debug
+    install(
+        TARGETS ${PROJECT_NAME}
+        CONFIGURATIONS Debug
+        LIBRARY DESTINATION "${PLUGIN_DEBUG_RELEASE_ROOT_DIR}${PLUGIN_RELEASE_BIN_DIR}"
+    )
+    install(
+        DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/Data/
+        CONFIGURATIONS Debug
+        DESTINATION "${PLUGIN_DEBUG_RELEASE_ROOT_DIR}${PLUGIN_RELEASE_DATA_DIR}"
+    )
+    # Install Info.plist for debug builds
+    install(
+        FILES ${CMAKE_CURRENT_SOURCE_DIR}/Data/Info.plist
+        CONFIGURATIONS Debug
+        DESTINATION "${PLUGIN_DEBUG_RELEASE_ROOT_DIR}/plugins/${PROJECT_NAME}.plugin/Contents"
     )
 else()
     set(PLUGIN_RELEASE_BIN_DIR "/plugins/${PROJECT_NAME}/bin/64bit") 
@@ -242,6 +470,7 @@ target_sources(
         Utility/Logging.tpp
         Utility/OBSDispatch.hpp
         Utility/OBSDispatch.tpp
+        Utility/OBSCompatibility.hpp
         Utility/ScopedProfiler.hpp
         Utility/ScopedProfiler.cpp
 

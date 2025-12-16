@@ -60,7 +60,7 @@ cmake -DCMAKE_BUILD_TYPE="$config" \
       -DOPENCV_BUILD_PATH="$opencv_build_path" \
       ..
 
-# Compile LiveVisionKit and install it to the build folder.
+# Compile OpenVisionKit and install it to the build folder.
 cmake --build . --config "$config"
 cmake --install . --config "$config"
 

@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include <LiveVisionKit.hpp>
+#include <OpenVisionKit.hpp>
 
 #include "Interop/VisionFilter.hpp"
 

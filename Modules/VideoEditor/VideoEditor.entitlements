@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+    OpenVisionKit Video Editor Entitlements
+    
+    These entitlements are required for the video editor command-line tool to function
+    correctly with macOS security features including Hardened Runtime and SIP.
+    
+    **Feature: macos-build-support, Property 15: Security configuration compliance**
+    **Validates: Requirements 8.1, 8.3, 8.5**
+-->
+<plist version="1.0">
+<dict>
+    <!-- 
+        Allow JIT compilation
+        Required for: OpenCV's optimized code paths and video processing algorithms
+    -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    
+    <!-- 
+        Allow unsigned executable memory
+        Required for: OpenCL kernel compilation and GPU-accelerated video processing
+    -->
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    
+    <!-- 
+        Disable library validation
+        Required for: Loading OpenCV, Qt5, and other third-party libraries
+    -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+    
+    <!-- 
+        Camera access
+        Required for: Live video capture and processing (optional feature)
+    -->
+    <key>com.apple.security.device.camera</key>
+    <true/>
+    
+    <!-- 
+        Microphone access
+        Required for: Audio capture when processing video with audio (optional feature)
+    -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+    
+    <!-- 
+        Read-write access to user-selected files
+        Required for: Processing video files selected by the user
+    -->
+    <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+</dict>
+</plist>

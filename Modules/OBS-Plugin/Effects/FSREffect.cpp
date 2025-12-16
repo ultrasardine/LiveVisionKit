@@ -17,7 +17,7 @@
 
 #include "FSREffect.hpp"
 
-#include <LiveVisionKit.hpp>
+#include <OpenVisionKit.hpp>
 
 #include "Utility/Logging.hpp"
 

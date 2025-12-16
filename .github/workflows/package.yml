@@ -1,0 +1,270 @@
+name: Package Build
+
+on:
+  pull_request:
+    branches: [ main ]
+    types: [ closed ]
+
+env:
+  BUILD_TYPE: Release
+
+jobs:
+  # Only run if PR was merged (not just closed)
+  check-merged:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.check.outputs.should_build }}
+    steps:
+    - name: Check if should build packages
+      id: check
+      run: echo "should_build=true" >> $GITHUB_OUTPUT
+
+  # Build packages for all platforms
+  build-packages:
+    name: Build ${{ matrix.platform }} Package
+    needs: check-merged
+    if: needs.check-merged.outputs.should_build == 'true'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 150
+    strategy:
+      matrix:
+        include:
+          - platform: Windows
+            os: windows-latest
+            artifact_name: OpenVisionKit-Windows-x64
+            artifact_ext: zip
+          - platform: Linux
+            os: ubuntu-latest
+            artifact_name: OpenVisionKit-Linux-x64
+            artifact_ext: tar.gz
+          - platform: macOS
+            os: macos-latest
+            artifact_name: OpenVisionKit-macOS-Universal
+            artifact_ext: tar.gz
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    # Platform-specific dependencies
+    - name: Install Linux dependencies
+      if: matrix.platform == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          cmake build-essential \
+          libopencv-dev libeigen3-dev qtbase5-dev qttools5-dev \
+          pkg-config \
+          libopencv-contrib-dev
+        
+        # Install OBS Studio development dependencies
+        sudo apt-get install -y \
+          libx11-dev libgl1-mesa-dev \
+          libasound2-dev libpulse-dev \
+          libxcomposite-dev libxinerama-dev \
+          libxss-dev libglib2.0-dev \
+          libfontconfig1-dev libfreetype6-dev \
+          libxrandr-dev libjansson-dev \
+          libcurl4-openssl-dev
+        
+        # Build OBS Studio from source (minimal build for headers only)
+        git clone --recursive --depth 1 --branch 30.0.2 https://github.com/obsproject/obs-studio.git /tmp/obs-source
+        cd /tmp/obs-source
+        mkdir build && cd build
+        
+        cmake .. \
+          -DCMAKE_INSTALL_PREFIX=/usr/local \
+          -DENABLE_PLUGINS=OFF \
+          -DENABLE_UI=OFF \
+          -DENABLE_SCRIPTING=OFF \
+          -DBUILD_TESTS=OFF \
+          -DENABLE_BROWSER=OFF \
+          -DENABLE_WEBSOCKET=OFF
+        
+        make -j$(nproc) obs-frontend-api
+        sudo make install
+    
+    - name: Setup MSVC
+      if: matrix.platform == 'Windows'
+      uses: microsoft/setup-msbuild@v1.3
+    
+    - name: Cache vcpkg
+      if: matrix.platform == 'Windows'
+      uses: actions/cache@v4
+      with:
+        path: |
+          C:/vcpkg/installed
+          C:/vcpkg/packages
+        key: ${{ runner.os }}-vcpkg-${{ hashFiles('**/vcpkg.json') }}
+        restore-keys: |
+          ${{ runner.os }}-vcpkg-
+    
+    - name: Cache OBS Studio build
+      if: matrix.platform == 'Windows'
+      uses: actions/cache@v4
+      with:
+        path: |
+          C:/obs-studio
+          C:/obs-build
+        key: ${{ runner.os }}-obs-30.0.2
+        restore-keys: |
+          ${{ runner.os }}-obs-
+    
+    - name: Install Windows dependencies
+      if: matrix.platform == 'Windows'
+      run: |
+        vcpkg install opencv[core,imgproc,imgcodecs,highgui,calib3d,features2d,video,videoio]:x64-windows
+        vcpkg install eigen3:x64-windows
+        vcpkg install qt5-base:x64-windows
+    
+    - name: Setup OBS Studio (Windows)
+      if: matrix.platform == 'Windows'
+      run: |
+        # Check if OBS Studio is already built (from cache)
+        if (Test-Path "C:\obs-studio\install\include\obs\obs.h") {
+          Write-Host "OBS Studio already built (from cache)"
+        } else {
+          Write-Host "Building OBS Studio from source..."
+          
+          # Clone OBS Studio source and build it for development headers
+          git clone --recursive --depth 1 --branch 30.0.2 https://github.com/obsproject/obs-studio.git C:\obs-source
+          
+          # Create build directory
+          mkdir C:\obs-build -Force
+          cd C:\obs-build
+          
+          # Configure OBS Studio build
+          cmake -G "Visual Studio 17 2022" -A x64 `
+            -DCMAKE_INSTALL_PREFIX="C:\obs-studio" `
+            -DENABLE_PLUGINS=OFF `
+            -DENABLE_UI=OFF `
+            -DENABLE_SCRIPTING=OFF `
+            -DBUILD_TESTS=OFF `
+            C:\obs-source
+          
+          # Build and install OBS Studio (headers and libraries only)
+          cmake --build . --config Release --target install -j
+        }
+        
+        # Set environment variable for CMake
+        echo "OBS_BUILD_PATH=C:\obs-studio" >> $env:GITHUB_ENV
+    
+    - name: Install macOS dependencies
+      if: matrix.platform == 'macOS'
+      run: |
+        brew update
+        brew install cmake opencv eigen qt@5 pkg-config
+        
+        # Install OBS Studio - use cask for the application, then build from source for dev headers
+        brew install --cask obs
+        
+        # Clone and build OBS Studio for development headers
+        git clone --recursive --depth 1 --branch 30.0.2 https://github.com/obsproject/obs-studio.git /tmp/obs-source
+        mkdir /tmp/obs-build
+        cd /tmp/obs-build
+        
+        cmake -DCMAKE_INSTALL_PREFIX=/usr/local \
+              -DENABLE_PLUGINS=OFF \
+              -DENABLE_UI=OFF \
+              -DENABLE_SCRIPTING=OFF \
+              -DBUILD_TESTS=OFF \
+              /tmp/obs-source
+        
+        make -j$(sysctl -n hw.ncpu)
+        sudo make install
+    
+    # Configure and build
+    - name: Configure CMake (Linux/macOS)
+      if: matrix.platform != 'Windows'
+      run: |
+        QT_CMAKE_ARGS=""
+        OBS_CMAKE_ARGS=""
+        
+        if [ "${{ matrix.platform }}" = "macOS" ]; then
+          QT_CMAKE_ARGS="-DQt5_DIR=$(brew --prefix qt@5)/lib/cmake/Qt5"
+        fi
+        
+        # Both Linux and macOS now install OBS to /usr/local
+        OBS_CMAKE_ARGS="-DOBS_BUILD_PATH=/usr/local"
+        
+        cmake -B build \
+          -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
+          -DCMAKE_CXX_STANDARD=20 \
+          -DBUILD_OBS_PLUGIN=ON \
+          -DBUILD_VIDEO_EDITOR=ON \
+          $QT_CMAKE_ARGS \
+          $OBS_CMAKE_ARGS
+    
+    - name: Configure CMake (Windows)
+      if: matrix.platform == 'Windows'
+      run: |
+        cmake -B build -A x64 `
+          -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} `
+          -DCMAKE_CXX_STANDARD=20 `
+          -DCMAKE_TOOLCHAIN_FILE="C:/vcpkg/scripts/buildsystems/vcpkg.cmake" `
+          -DBUILD_OBS_PLUGIN=ON `
+          -DBUILD_VIDEO_EDITOR=ON `
+          -DOBS_BUILD_PATH="$env:OBS_BUILD_PATH"
+    
+    - name: Build
+      run: cmake --build build --config ${{ env.BUILD_TYPE }} -j
+    
+    # Package platform-specific builds
+    - name: Package Windows
+      if: matrix.platform == 'Windows'
+      run: |
+        mkdir ${{ matrix.artifact_name }}
+        # Copy binaries
+        Get-ChildItem -Path "build/${{ env.BUILD_TYPE }}" -Filter "*.exe" | Copy-Item -Destination "${{ matrix.artifact_name }}/"
+        Get-ChildItem -Path "build/${{ env.BUILD_TYPE }}" -Filter "*.dll" | Copy-Item -Destination "${{ matrix.artifact_name }}/"
+        # Copy OBS plugin if exists
+        if (Test-Path "build/Modules/OBS-Plugin/${{ env.BUILD_TYPE }}") {
+          New-Item -ItemType Directory -Path "${{ matrix.artifact_name }}/obs-plugins" -Force
+          Get-ChildItem -Path "build/Modules/OBS-Plugin/${{ env.BUILD_TYPE }}" -Recurse | Copy-Item -Destination "${{ matrix.artifact_name }}/obs-plugins/" -Recurse -Force
+        }
+        # Copy documentation
+        Copy-Item -Path "README.md", "LICENSE", "CHANGELOG.md", "openvisionkit_architecture.md" -Destination "${{ matrix.artifact_name }}/"
+        # Create archive
+        Compress-Archive -Path "${{ matrix.artifact_name }}" -DestinationPath "${{ matrix.artifact_name }}.${{ matrix.artifact_ext }}"
+    
+    - name: Package Linux
+      if: matrix.platform == 'Linux'
+      run: |
+        mkdir ${{ matrix.artifact_name }}
+        # Copy binaries
+        find build -name "*.so" -exec cp {} ${{ matrix.artifact_name }}/ \; 2>/dev/null || true
+        find build -executable -type f -not -name "*.so" -exec cp {} ${{ matrix.artifact_name }}/ \; 2>/dev/null || true
+        # Copy OBS plugin if exists
+        if [ -d "build/Modules/OBS-Plugin" ]; then
+          mkdir -p ${{ matrix.artifact_name }}/obs-plugins
+          find build/Modules/OBS-Plugin -name "*.so" -exec cp {} ${{ matrix.artifact_name }}/obs-plugins/ \; 2>/dev/null || true
+        fi
+        # Copy documentation
+        cp README.md LICENSE CHANGELOG.md openvisionkit_architecture.md ${{ matrix.artifact_name }}/
+        # Create archive
+        tar -czf ${{ matrix.artifact_name }}.${{ matrix.artifact_ext }} ${{ matrix.artifact_name }}
+    
+    - name: Package macOS
+      if: matrix.platform == 'macOS'
+      run: |
+        mkdir ${{ matrix.artifact_name }}
+        # Copy binaries
+        find build -name "*.dylib" -exec cp {} ${{ matrix.artifact_name }}/ \; 2>/dev/null || true
+        find build -perm +111 -type f -not -name "*.dylib" -exec cp {} ${{ matrix.artifact_name }}/ \; 2>/dev/null || true
+        # Copy OBS plugin if exists
+        if [ -d "build/Modules/OBS-Plugin" ]; then
+          mkdir -p ${{ matrix.artifact_name }}/obs-plugins
+          find build/Modules/OBS-Plugin -name "*.dylib" -exec cp {} ${{ matrix.artifact_name }}/obs-plugins/ \; 2>/dev/null || true
+        fi
+        # Copy documentation
+        cp README.md LICENSE CHANGELOG.md openvisionkit_architecture.md ${{ matrix.artifact_name }}/
+        # Create archive
+        tar -czf ${{ matrix.artifact_name }}.${{ matrix.artifact_ext }} ${{ matrix.artifact_name }}
+    
+    # Upload artifacts
+    - name: Upload Package Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.artifact_name }}
+        path: ${{ matrix.artifact_name }}.${{ matrix.artifact_ext }}
+        retention-days: 30

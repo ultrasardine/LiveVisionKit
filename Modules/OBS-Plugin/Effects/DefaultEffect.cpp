@@ -17,7 +17,7 @@
 
 #include "DefaultEffect.hpp"
 
-#include <LiveVisionKit.hpp>
+#include <OpenVisionKit.hpp>
 
 namespace lvk
 {

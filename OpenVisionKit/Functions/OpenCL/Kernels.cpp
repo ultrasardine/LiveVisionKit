@@ -19,6 +19,10 @@
 
 #include "Directives.hpp"
 
+#ifdef MACOS_BUILD
+#include "MacOSAcceleration.hpp"
+#endif
+
 namespace lvk::ocl
 {
 
@@ -26,6 +30,24 @@ namespace lvk::ocl
 
 cv::ocl::Program load_program(const char* name, const char* source, const char* flags)
 {
+#ifdef MACOS_BUILD
+    // Initialize macOS GPU acceleration on first use
+    static bool macos_gpu_initialized = false;
+    if (!macos_gpu_initialized)
+    {
+        macos::initialize_gpu_acceleration();
+        macos_gpu_initialized = true;
+    }
+    
+    // Use macOS OpenCL context if available
+    auto& macos_context = macos::MacOSOpenCLContext::instance();
+    if (!macos_context.is_available())
+    {
+        // OpenCL not available on macOS, return empty program
+        return {};
+    }
+#endif
+
     cv::String compilation_log;
 
     cv::ocl::ProgramSource program_source(name, name, source, "");

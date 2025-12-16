@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+    OpenVisionKit OBS Plugin Entitlements
+    
+    These entitlements are required for the OBS plugin to function correctly
+    with macOS security features including Hardened Runtime and System Integrity Protection.
+    
+    **Feature: macos-build-support, Property 15: Security configuration compliance**
+    **Validates: Requirements 8.1, 8.3**
+-->
+<plist version="1.0">
+<dict>
+    <!-- 
+        Allow JIT compilation
+        Required for: OpenCV's optimized code paths and video processing algorithms
+    -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    
+    <!-- 
+        Allow unsigned executable memory
+        Required for: OpenCL kernel compilation and GPU-accelerated video processing
+    -->
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    
+    <!-- 
+        Disable library validation
+        Required for: Loading the plugin into OBS Studio and linking with OpenCV, Qt5
+    -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+    
+    <!-- 
+        Allow DYLD environment variables
+        Required for: Plugin debugging and development workflows
+    -->
+    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+    <true/>
+</dict>
+</plist>

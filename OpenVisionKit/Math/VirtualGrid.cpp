@@ -199,7 +199,7 @@ namespace lvk
 
     cv::Point2f VirtualGrid::key_to_point(const SpatialKey& key) const
     {
-        return cv::Point2f(key) * m_KeySize;
+        return cv::Point2f(static_cast<float>(key.x), static_cast<float>(key.y)) * m_KeySize;
     }
 
 //---------------------------------------------------------------------------------------------------------------------
