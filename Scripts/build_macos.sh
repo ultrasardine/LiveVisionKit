@@ -5,10 +5,14 @@
 
 set -e  # Exit on any error
 
+# Get script and project paths at startup (before any cd commands)
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" &> /dev/null && pwd)"
+PROJECT_ROOT="$(cd -- "$SCRIPT_DIR/.." &> /dev/null && pwd)"
+
 # Default configuration values
 config="Release"
 architecture="universal"  # x86_64, arm64, or universal
-macos_version="10.15"
+macos_version="13.0"
 build_plugin=false
 build_editor=false
 install_plugin=false
@@ -21,6 +25,21 @@ install_prefix=""
 create_package=false
 package_format="dmg"  # dmg, pkg, or zip
 package_name=""
+
+# Handle long options by converting to short options
+args=()
+for arg in "$@"; do
+    case "$arg" in
+        --plugin)     args+=("-p") ;;
+        --editor)     args+=("-e") ;;
+        --verbose)    args+=("-v") ;;
+        --clean)      args+=("-C") ;;
+        --package)    args+=("-k") ;;
+        --help)       args+=("-h") ;;
+        *)            args+=("$arg") ;;
+    esac
+done
+set -- "${args[@]}"
 
 # Parse command line arguments
 while getopts "c:a:m:peitsvj:P:Ckf:n:h" args; do
@@ -115,7 +134,7 @@ done
 
 # Logging functions
 log_info() {
-    echo "[INFO] $1"
+    echo "[INFO] $1" >&2
 }
 
 log_error() {
@@ -124,12 +143,12 @@ log_error() {
 
 log_verbose() {
     if [ "$verbose" = true ]; then
-        echo "[VERBOSE] $1"
+        echo "[VERBOSE] $1" >&2
     fi
 }
 
 log_success() {
-    echo "[SUCCESS] $1"
+    echo "[SUCCESS] $1" >&2
 }
 
 # Validation functions
@@ -341,8 +360,7 @@ discover_dependency_paths() {
     fi
     
     # Check for OBS Studio
-    local scripts_path=$(cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd)
-    local obs_path="${scripts_path}/../Dependencies/obs-studio"
+    local obs_path="${PROJECT_ROOT}/Dependencies/obs-studio"
     
     if [ -d "$obs_path/build/install" ]; then
         deps_info="${deps_info}OBS_PATH=${obs_path}/build/install\n"
@@ -451,8 +469,7 @@ execute_build() {
     log_info "Starting build process..."
     
     # Get project paths
-    local scripts_path=$(cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd)
-    local project_path="${scripts_path}/.."
+    local project_path="${PROJECT_ROOT}"
     local build_path="${project_path}/build"
     
     # Handle clean build
@@ -535,33 +552,55 @@ execute_build() {
 validate_build_output() {
     log_info "Validating build output..."
     
-    local scripts_path=$(cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd)
-    local project_path="${scripts_path}/.."
+    # Use the global PROJECT_ROOT if available, otherwise try to detect
+    local project_path="${PROJECT_ROOT:-}"
+    if [ -z "$project_path" ]; then
+        # Fallback: try to find project root from current directory
+        project_path=$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")/.." &> /dev/null && pwd)
+        if [ -z "$project_path" ] || [ "$project_path" = "/" ]; then
+            # Last resort: use pwd and look for CMakeLists.txt
+            project_path=$(pwd)
+            while [ "$project_path" != "/" ] && [ ! -f "$project_path/CMakeLists.txt" ]; do
+                project_path=$(dirname "$project_path")
+            done
+        fi
+    fi
     local build_path="${project_path}/build"
     local install_path="${build_path}/Install"
+    
+    log_verbose "Validation paths: project=$project_path install=$install_path"
     
     # Check for core library
     local core_lib_found=false
     local lib_extensions=("dylib" "a")
     
     for ext in "${lib_extensions[@]}"; do
-        if find "$install_path" -name "*OpenVisionKit*.$ext" -o -name "*lvk*.$ext" | grep -q .; then
+        if find "$install_path" -name "*OpenVisionKit*.$ext" -o -name "*lvk*.$ext" 2>/dev/null | grep -q .; then
             core_lib_found=true
             break
         fi
     done
     
-    if [ "$core_lib_found" = true ]; then
-        log_success "Core library found in installation"
-    else
-        log_error "Core library not found in installation"
-        return 1
-    fi
-    
-    # Check for OBS plugin if requested
+    # Check for OBS plugin if requested (before core lib validation - plugin builds may not have standalone core lib)
     if [ "$build_plugin" = true ]; then
-        if find "$install_path" -name "*.dylib" | grep -i obs | grep -q .; then
+        local plugin_found=false
+        local plugin_search=$(find "$install_path" -name "*.plugin" -type d 2>/dev/null)
+        log_verbose "Plugin search result: $plugin_search"
+        
+        if [ -n "$plugin_search" ]; then
+            plugin_found=true
+        else
+            local dylib_search=$(find "$install_path" -name "*lvk*.dylib" 2>/dev/null)
+            log_verbose "Dylib search result: $dylib_search"
+            if [ -n "$dylib_search" ]; then
+                plugin_found=true
+            fi
+        fi
+        
+        if [ "$plugin_found" = true ]; then
             log_success "OBS plugin found in installation"
+            # For plugin builds, the plugin contains the core library
+            core_lib_found=true
         else
             log_error "OBS plugin not found in installation"
             return 1
@@ -570,7 +609,7 @@ validate_build_output() {
     
     # Check for video editor if requested
     if [ "$build_editor" = true ]; then
-        if find "$install_path" -name "*editor*" -o -name "*lvk-editor*" | grep -q .; then
+        if find "$install_path" -name "*editor*" -o -name "*lvk-editor*" 2>/dev/null | grep -q .; then
             log_success "Video editor found in installation"
         else
             log_error "Video editor not found in installation"
@@ -578,9 +617,17 @@ validate_build_output() {
         fi
     fi
     
+    # Now validate core library (after plugin/editor checks may have set core_lib_found)
+    if [ "$core_lib_found" = true ]; then
+        log_success "Core library found in installation"
+    else
+        log_error "Core library not found in installation"
+        return 1
+    fi
+    
     # Check architecture of built binaries
     log_info "Verifying binary architectures..."
-    local binary_files=$(find "$install_path" -type f \( -name "*.dylib" -o -perm +111 \) | head -5)
+    local binary_files=$(find "$install_path" -type f \( -name "*.dylib" -o -perm +111 \) 2>/dev/null | head -5)
     
     for binary in $binary_files; do
         if [ -f "$binary" ]; then
@@ -620,8 +667,7 @@ run_tests() {
     if [ "$enable_testing" = true ]; then
         log_info "Running tests..."
         
-        local scripts_path=$(cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd)
-        local project_path="${scripts_path}/.."
+        local project_path="${PROJECT_ROOT}"
         local build_path="${project_path}/build"
         
         cd "$build_path"
@@ -684,8 +730,7 @@ create_macos_bundle() {
     create_info_plist "$bundle_path/Contents/Info.plist"
     
     # Copy resources
-    local scripts_path=$(cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd)
-    local assets_path="${scripts_path}/../Assets"
+    local assets_path="${PROJECT_ROOT}/Assets"
     
     if [ -d "$assets_path" ]; then
         cp "$assets_path"/*.png "$bundle_path/Contents/Resources/" 2>/dev/null || true
@@ -817,71 +862,71 @@ create_dmg_package() {
     
     log_info "Creating DMG package..."
     
-    local temp_dmg="${output_path}/${package_name}_temp.dmg"
     local final_dmg="${output_path}/${package_name}.dmg"
     
-    # Remove existing DMG files
-    rm -f "$temp_dmg" "$final_dmg"
+    # Remove existing DMG file
+    rm -f "$final_dmg"
     
-    # Create temporary DMG
-    local bundle_size=$(du -sm "$bundle_path" | cut -f1)
-    local dmg_size=$((bundle_size + 50)) # Add 50MB padding
+    # Create a staging directory
+    local staging_dir="${output_path}/.dmg_staging"
+    rm -rf "$staging_dir"
+    mkdir -p "$staging_dir"
     
-    hdiutil create -srcfolder "$bundle_path" -volname "$package_name" -fs HFS+ \
-            -fsargs "-c c=64,a=16,e=16" -format UDRW -size "${dmg_size}m" "$temp_dmg"
-    
-    if [ $? -ne 0 ]; then
-        log_error "Failed to create temporary DMG"
-        return 1
+    # For OBS plugin builds, create a plugin-specific DMG
+    if [ "$build_plugin" = "true" ]; then
+        log_info "Creating OBS Plugin installer DMG..."
+        
+        # Find and copy the .plugin bundle
+        local plugin_bundle=$(find "${PROJECT_ROOT}/build/Install" -name "*.plugin" -type d 2>/dev/null | head -1)
+        if [ -n "$plugin_bundle" ]; then
+            cp -R "$plugin_bundle" "$staging_dir/"
+            log_verbose "Copied plugin bundle: $(basename "$plugin_bundle")"
+        fi
+        
+        # Create OBS plugins folder symlink
+        local obs_plugins_path="$HOME/Library/Application Support/obs-studio/plugins"
+        mkdir -p "$obs_plugins_path"  # Ensure it exists
+        ln -sf "$obs_plugins_path" "$staging_dir/OBS Plugins Folder"
+        
+        # Create README for installation
+        cat > "$staging_dir/README - How to Install.txt" << 'INSTALL_EOF'
+OpenVisionKit OBS Plugin Installation
+=====================================
+
+To install the plugin:
+
+1. Drag "lvk-obs.plugin" to "OBS Plugins Folder"
+2. Restart OBS Studio
+3. The plugin will appear in your Filters list
+
+Manual Installation Path:
+~/Library/Application Support/obs-studio/plugins/
+
+To uninstall:
+Delete lvk-obs.plugin from the OBS Plugins Folder
+
+INSTALL_EOF
+        log_verbose "Created installation README"
+    else
+        # For non-plugin builds, include the app bundle
+        cp -R "$bundle_path" "$staging_dir/"
+        ln -sf /Applications "$staging_dir/Applications"
     fi
     
-    # Mount the DMG
-    local mount_point=$(hdiutil attach -readwrite -noverify -noautoopen "$temp_dmg" | \
-                       egrep '^/dev/' | sed 1q | awk '{print $3}')
+    # Create compressed DMG directly
+    hdiutil create -srcfolder "$staging_dir" -volname "$package_name" \
+            -fs HFS+ -format UDZO -imagekey zlib-level=9 "$final_dmg"
     
-    if [ -z "$mount_point" ]; then
-        log_error "Failed to mount temporary DMG"
-        return 1
-    fi
+    local result=$?
     
-    # Create Applications symlink
-    ln -sf /Applications "$mount_point/Applications"
+    # Clean up staging directory
+    rm -rf "$staging_dir"
     
-    # Set DMG appearance (if osascript is available)
-    if command -v osascript &> /dev/null; then
-        osascript << EOF
-tell application "Finder"
-    tell disk "$package_name"
-        open
-        set current view of container window to icon view
-        set toolbar visible of container window to false
-        set statusbar visible of container window to false
-        set the bounds of container window to {400, 100, 900, 400}
-        set theViewOptions to the icon view options of container window
-        set arrangement of theViewOptions to not arranged
-        set icon size of theViewOptions to 128
-        set position of item "$(basename "$bundle_path")" of container window to {150, 150}
-        set position of item "Applications" of container window to {350, 150}
-        update without registering applications
-        delay 2
-        close
-    end tell
-end tell
-EOF
-    fi
-    
-    # Unmount the DMG
-    hdiutil detach "$mount_point"
-    
-    # Convert to compressed DMG
-    hdiutil convert "$temp_dmg" -format UDZO -imagekey zlib-level=9 -o "$final_dmg"
-    
-    if [ $? -eq 0 ]; then
-        rm -f "$temp_dmg"
+    if [ $result -eq 0 ]; then
         log_success "DMG package created: $final_dmg"
         return 0
     else
-        log_error "Failed to create final DMG"
+        log_error "Failed to create DMG"
         return 1
     fi
 }
@@ -950,15 +995,14 @@ create_zip_package() {
 
 # Main packaging function
 create_distribution_package() {
-    if [ "$create_package" = false ]; then
+    if [ "$create_package" = "false" ]; then
         log_verbose "Package creation skipped"
         return 0
     fi
     
     log_info "Creating distribution package..."
     
-    local scripts_path=$(cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd)
-    local project_path="${scripts_path}/.."
+    local project_path="${PROJECT_ROOT}"
     local build_path="${project_path}/build"
     local install_path="${build_path}/Install"
     
@@ -1092,8 +1136,7 @@ validate_bundle_structure() {
 generate_build_report() {
     log_info "Generating build report..."
     
-    local scripts_path=$(cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd)
-    local project_path="${scripts_path}/.."
+    local project_path="${PROJECT_ROOT}"
     local build_path="${project_path}/build"
     local report_file="${build_path}/build_report.txt"
     

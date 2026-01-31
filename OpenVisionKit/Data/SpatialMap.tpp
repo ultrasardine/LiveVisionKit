@@ -612,9 +612,11 @@ namespace lvk
         float excess = 0.0;
         for(const auto& [key, data] : m_Data)
         {
-            if(sector_grid.test_point(key))
+            // Explicit cast to cv::Point2f to avoid ambiguous saturate_cast with size_t on ARM64
+            const cv::Point2f key_as_point(static_cast<float>(key.x), static_cast<float>(key.y));
+            if(sector_grid.test_point(key_as_point))
             {
-                const size_t index = sector_grid.key_to_index(sector_grid.key_of(key));
+                const size_t index = sector_grid.key_to_index(sector_grid.key_of(key_as_point));
                 if(++sector_buckets[index] > ideal_distribution)
                     excess += 1.0;
             }

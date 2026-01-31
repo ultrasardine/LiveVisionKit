@@ -162,15 +162,9 @@ public:
                                         const char* name, 
                                         const char* description,
                                         double min, double max, double step) {
-        #if OBS_VERSION_29_1_PLUS
-            // Use newer API if available
-            return obs_properties_add_float_slider(props, name, description, min, max, step);
-        #else
-            // Fallback for older versions
-            obs_property_t* prop = obs_properties_add_float(props, name, description, min, max, step);
-            obs_property_float_set_slider(prop, true);
-            return prop;
-        #endif
+        // OBS 29.1+ has obs_properties_add_float_slider
+        // obs_property_float_set_slider was removed in OBS 32
+        return obs_properties_add_float_slider(props, name, description, min, max, step);
     }
 };
 

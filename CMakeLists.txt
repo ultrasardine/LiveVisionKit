@@ -31,7 +31,11 @@ set_property(GLOBAL PROPERTY PREDEFINED_TARGETS_FOLDER "CMakeTargets")
 
 
 # Set up project 
-project(OpenVisionKit)
+if(APPLE)
+    project(OpenVisionKit LANGUAGES C CXX OBJC OBJCXX)
+else()
+    project(OpenVisionKit LANGUAGES C CXX)
+endif()
 message(STATUS "\nConfiguring OpenVisionKit...")
 
 # Project defines
@@ -203,23 +207,29 @@ else()
 endif()
 
 # Platform-specific Qt5 detection
-if(UNIX AND NOT MACOS_BUILD)
-    # Linux-specific Qt5 detection
-    find_package(Qt5 REQUIRED Core Gui Widgets Test Concurrent OpenGL)
-elseif(MACOS_BUILD)
-    # macOS Qt5 detection - call find_package after detection
-    if(QT5_FOUND)
-        # Set CMAKE_PREFIX_PATH to help find_package locate Qt5
-        list(APPEND CMAKE_PREFIX_PATH "${QT5_INSTALL_PATH}")
-        find_package(Qt5 REQUIRED COMPONENTS Core Gui Widgets Test Concurrent OpenGL)
-    else()
-        generate_qt5_install_suggestions()
-        message(FATAL_ERROR "Qt5 is required but was not found. Please install Qt5 using one of the methods above.")
+# Qt5 is ONLY required for VideoEditor (uses opencv_highgui which depends on Qt5)
+# The OBS plugin must NOT link Qt5 as it conflicts with OBS's Qt6
+if(BUILD_VIDEO_EDITOR)
+    if(UNIX AND NOT MACOS_BUILD)
+        # Linux-specific Qt5 detection
+        find_package(Qt5 REQUIRED Core Gui Widgets Test Concurrent OpenGL)
+    elseif(MACOS_BUILD)
+        # macOS Qt5 detection - call find_package after detection
+        if(QT5_FOUND)
+            # Set CMAKE_PREFIX_PATH to help find_package locate Qt5
+            list(APPEND CMAKE_PREFIX_PATH "${QT5_INSTALL_PATH}")
+            find_package(Qt5 REQUIRED COMPONENTS Core Gui Widgets Test Concurrent OpenGL)
+        else()
+            generate_qt5_install_suggestions()
+            message(FATAL_ERROR "Qt5 is required for VideoEditor but was not found. Please install Qt5 using one of the methods above, or disable VideoEditor with -DBUILD_VIDEO_EDITOR=OFF")
+        endif()
+        
+        message(STATUS "${MI}Qt5 Detection Method: ${QT5_DETECTION_METHOD}")
+        message(STATUS "${MI}Qt5 Install Path: ${QT5_INSTALL_PATH}")
+        message(STATUS "${MI}Qt5 Version: ${Qt5_VERSION}")
     endif()
-    
-    message(STATUS "${MI}Qt5 Detection Method: ${QT5_DETECTION_METHOD}")
-    message(STATUS "${MI}Qt5 Install Path: ${QT5_INSTALL_PATH}")
-    message(STATUS "${MI}Qt5 Version: ${Qt5_VERSION}")
+else()
+    message(STATUS "${MI}Qt5: Skipped (VideoEditor not being built)")
 endif()
 
 # Eigen3 detection for macOS

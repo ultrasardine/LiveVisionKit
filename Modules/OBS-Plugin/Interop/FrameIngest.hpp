@@ -18,9 +18,24 @@
 #pragma once
 
 #include <memory>
-#include <obs-module.h>
+
+// Include OpenCV first with Apple macro fix before OBS headers
+#ifdef __APPLE__
+    #pragma push_macro("YES")
+    #pragma push_macro("NO")
+    #undef YES
+    #undef NO
+#endif
+
 #include <OpenVisionKit.hpp>
 #include <opencv2/opencv.hpp>
+
+#ifdef __APPLE__
+    #pragma pop_macro("YES")
+    #pragma pop_macro("NO")
+#endif
+
+#include <obs-module.h>
 
 namespace lvk
 {

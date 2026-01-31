@@ -207,6 +207,9 @@ namespace lvk::ocl::macos
         void stop_performance_monitoring();
         double get_average_execution_time(const std::string& operation_type) const;
         
+        // Get GPU capabilities
+        const GPUCapabilities& capabilities() const { return m_capabilities; }
+        
     private:
         GPUAccelerationManager() = default;
         

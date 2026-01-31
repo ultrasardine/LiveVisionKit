@@ -14,7 +14,8 @@ set_property(TARGET ${PROJECT_NAME} PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded
 # Configure macOS-specific library properties
 if(APPLE)
     set_target_properties(${PROJECT_NAME} PROPERTIES
-        SUFFIX ".dylib"
+        PREFIX ""
+        SUFFIX ""
         BUNDLE FALSE
         MACOSX_RPATH TRUE
         INSTALL_RPATH "@loader_path"
@@ -146,8 +147,13 @@ else()
         set(OBS_REL_INCLUDE_PATH "/install/include/")
         set(OBS_REL_LIB_PATH "/install/bin/64bit/obs.lib")
     elseif(APPLE)
+        # OBS 32+ on macOS builds as framework in app bundle
+        # Headers are in source tree, library is in framework
         set(OBS_REL_INCLUDE_PATH "/install/include/obs/")
         set(OBS_REL_LIB_PATH "/install/lib/libobs.dylib")
+        # Alternative paths for OBS 32+ framework build
+        set(OBS_SOURCE_INCLUDE_PATH "/../libobs/")
+        set(OBS_FRAMEWORK_LIB_PATH "/install/OBS.app/Contents/Frameworks/libobs.framework/libobs")
     else()
         set(OBS_REL_INCLUDE_PATH "/install/include/obs/")
         set(OBS_REL_LIB_PATH "/install/lib/libobs.so")
@@ -157,12 +163,54 @@ else()
     if(OBS_BUILD_PATH STREQUAL "")
         message(FATAL_ERROR "OBS_BUILD_PATH was not provided and system OBS not found!")
     else()
-        if(EXISTS ${OBS_BUILD_PATH}${OBS_REL_INCLUDE_PATH} AND EXISTS ${OBS_BUILD_PATH}${OBS_REL_LIB_PATH})
+        # Convert to absolute path and normalize
+        get_filename_component(OBS_BUILD_PATH_ABS "${OBS_BUILD_PATH}" ABSOLUTE)
+        message(STATUS "${MI}OBS_BUILD_PATH (absolute): ${OBS_BUILD_PATH_ABS}")
+        
+        # First try traditional layout
+        if(EXISTS ${OBS_BUILD_PATH_ABS}${OBS_REL_INCLUDE_PATH} AND EXISTS ${OBS_BUILD_PATH_ABS}${OBS_REL_LIB_PATH})
             set(OBS_FOUND TRUE)
-            set(OBS_INCLUDE_DIRS "${OBS_BUILD_PATH}${OBS_REL_INCLUDE_PATH}")
-            set(OBS_LIBRARIES "${OBS_BUILD_PATH}${OBS_REL_LIB_PATH}")
+            set(OBS_INCLUDE_DIRS "${OBS_BUILD_PATH_ABS}${OBS_REL_INCLUDE_PATH}")
+            set(OBS_LIBRARIES "${OBS_BUILD_PATH_ABS}${OBS_REL_LIB_PATH}")
             message(STATUS "${MI}Found OBS-Studio via custom build: YES")
         else()
+            # macOS: Try OBS 32+ framework layout (headers in source, lib in app bundle)
+            if(APPLE)
+                # OBS_BUILD_PATH might be .../build or .../build/install - handle both
+                # Get OBS source root by going up to find libobs directory
+                set(OBS_SOURCE_ROOT "${OBS_BUILD_PATH_ABS}")
+                # If path ends with /install, go up one level to get build dir
+                if(OBS_BUILD_PATH_ABS MATCHES ".*/install$")
+                    get_filename_component(OBS_SOURCE_ROOT "${OBS_BUILD_PATH_ABS}" DIRECTORY)
+                endif()
+                # Go up one more level to get obs-studio source root
+                get_filename_component(OBS_SOURCE_ROOT "${OBS_SOURCE_ROOT}" DIRECTORY)
+                
+                set(OBS_FRAMEWORK_INCLUDE "${OBS_SOURCE_ROOT}/libobs")
+                # Also need the generated config headers from the build directory
+                set(OBS_GENERATED_INCLUDE "${OBS_SOURCE_ROOT}/build_macos/config")
+                # Handle both possible locations for the framework
+                set(OBS_FRAMEWORK_LIBRARY "${OBS_BUILD_PATH_ABS}/OBS.app/Contents/Frameworks/libobs.framework/libobs")
+                if(NOT EXISTS "${OBS_FRAMEWORK_LIBRARY}")
+                    set(OBS_FRAMEWORK_LIBRARY "${OBS_SOURCE_ROOT}/build/install/OBS.app/Contents/Frameworks/libobs.framework/libobs")
+                endif()
+                
+                message(STATUS "${MI}Checking OBS framework paths:")
+                message(STATUS "${MI}  Include: ${OBS_FRAMEWORK_INCLUDE}")
+                message(STATUS "${MI}  Library: ${OBS_FRAMEWORK_LIBRARY}")
+                
+                if(EXISTS "${OBS_FRAMEWORK_INCLUDE}/obs.h" AND EXISTS "${OBS_FRAMEWORK_LIBRARY}")
+                    set(OBS_FOUND TRUE)
+                    # Include both source headers and generated config headers
+                    set(OBS_INCLUDE_DIRS "${OBS_FRAMEWORK_INCLUDE}" "${OBS_GENERATED_INCLUDE}")
+                    set(OBS_LIBRARIES "${OBS_FRAMEWORK_LIBRARY}")
+                    message(STATUS "${MI}Found OBS-Studio via macOS framework build: YES")
+                    message(STATUS "${MI}OBS Generated headers: ${OBS_GENERATED_INCLUDE}")
+                endif()
+            endif()
+        endif()
+        
+        if(NOT OBS_FOUND)
             message(FATAL_ERROR "Could not find OBS-Studio includes or libraries - Check OBS_BUILD_PATH or install system OBS")
         endif()
     endif()
@@ -231,7 +279,7 @@ message(STATUS "${MI}OBS Studio Version: ${OBS_DETECTED_VERSION}")
 
 # Define minimum supported OBS version
 set(OBS_MIN_VERSION "29.0.0")
-set(OBS_MAX_TESTED_VERSION "30.2.0")
+set(OBS_MAX_TESTED_VERSION "32.0.4")
 
 # Version compatibility check
 if(NOT OBS_DETECTED_VERSION STREQUAL "unknown")
@@ -273,6 +321,23 @@ if(APPLE)
 endif()
 
 
+# Find SIMDE for ARM64 SSE emulation (required by OBS on Apple Silicon)
+if(APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "arm64")
+    # Try to find SIMDE via Homebrew
+    execute_process(
+        COMMAND brew --prefix simde
+        OUTPUT_VARIABLE SIMDE_PREFIX
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+    if(EXISTS "${SIMDE_PREFIX}/include/simde")
+        set(SIMDE_INCLUDE_DIR "${SIMDE_PREFIX}/include")
+        message(STATUS "${MI}Found SIMDE: ${SIMDE_INCLUDE_DIR}")
+    else()
+        message(WARNING "SIMDE not found. Install with: brew install simde")
+    endif()
+endif()
+
 # Include all dependencies
 target_include_directories(
     ${PROJECT_NAME}
@@ -280,6 +345,7 @@ target_include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR} 
     ${LVK_CORE_DIR}
     ${OBS_INCLUDE_DIRS}
+    ${SIMDE_INCLUDE_DIR}
 )
 
 # Link all dependencies
@@ -443,8 +509,11 @@ target_sources(
         Sources/Tools/IngestTestSource.cpp
 
         Data/effects/ffx_a.h
+        Data/effects/ffx_a_mod.h
         Data/effects/ffx_cas.h
+        Data/effects/ffx_cas_mod.h
         Data/effects/ffx_fsr1.h
+        Data/effects/ffx_fsr1_mod.h
         Effects/CASEffect.cpp
         Effects/CASEffect.hpp
         Effects/DefaultEffect.cpp

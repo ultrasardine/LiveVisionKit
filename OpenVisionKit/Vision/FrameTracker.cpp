@@ -239,10 +239,10 @@ namespace lvk
             const cv::Point2f& dst_point = matched_points[i];
 
             // Resolve the mesh vertices surrounding the feature.
-            cv::Point k00 = mesh_grid.key_of(src_point);
-            k00.x = std::clamp(k00.x, 0, grid_size.width);
-            k00.y = std::clamp(k00.y, 0, grid_size.height);
-            const cv::Point k11 = k00 + 1;
+            SpatialKey k00 = mesh_grid.key_of(src_point);
+            k00.x = std::clamp(k00.x, static_cast<size_t>(0), static_cast<size_t>(grid_size.width));
+            k00.y = std::clamp(k00.y, static_cast<size_t>(0), static_cast<size_t>(grid_size.height));
+            const SpatialKey k11(k00.x + 1, k00.y + 1);
 
             // Get indices of the mesh vertices
             const int i00 = 2 * static_cast<int>(mesh_grid.key_to_index(k00));

@@ -34,6 +34,8 @@ target_include_directories(
 )    
 
 # Link all dependencies
+# NOTE: opencv_highgui is NOT linked here - it's only needed by VideoEditor
+# and it brings in Qt5 which conflicts with OBS's Qt6
 target_link_libraries(
     ${PROJECT_NAME} 
     Threads::Threads
@@ -41,34 +43,11 @@ target_link_libraries(
     opencv_video
     opencv_imgproc
     opencv_calib3d
-    opencv_highgui
     opencv_features2d
     Eigen3::Eigen
 )
 
-if(UNIX AND NOT MACOS_BUILD)
-# Required by opencv_highgui on Linux
-target_link_libraries(
-    ${PROJECT_NAME}
-    Qt5::Core
-    Qt5::Gui
-    Qt5::Widgets
-    Qt5::Test
-    Qt5::Concurrent
-    Qt5::OpenGL
-)
-elseif(MACOS_BUILD)
-# Required by opencv_highgui and LVK on macOS
-target_link_libraries(
-    ${PROJECT_NAME}
-    Qt5::Core
-    Qt5::Gui
-    Qt5::Widgets
-    Qt5::Test
-    Qt5::Concurrent
-    Qt5::OpenGL
-)
-
+if(MACOS_BUILD)
 # Link macOS-specific frameworks
 if(COREFOUNDATION_FRAMEWORK)
     target_link_libraries(${PROJECT_NAME} ${COREFOUNDATION_FRAMEWORK})
@@ -115,11 +94,10 @@ target_sources(
 
         Functions/OpenCL/Kernels.hpp
         Functions/OpenCL/Kernels.cpp
-        # Temporarily disable macOS-specific files for checkpoint
-        # Functions/OpenCL/MacOSAcceleration.hpp
-        # Functions/OpenCL/MacOSAcceleration.mm
-        # Functions/OpenCL/CoreVideoIntegration.hpp
-        # Functions/OpenCL/CoreVideoIntegration.mm
+        $<$<PLATFORM_ID:Darwin>:Functions/OpenCL/MacOSAcceleration.hpp>
+        $<$<PLATFORM_ID:Darwin>:Functions/OpenCL/MacOSAcceleration.mm>
+        $<$<PLATFORM_ID:Darwin>:Functions/OpenCL/CoreVideoIntegration.hpp>
+        $<$<PLATFORM_ID:Darwin>:Functions/OpenCL/CoreVideoIntegration.mm>
         Functions/Extensions.hpp
         Functions/Extensions.cpp
         Functions/Container.hpp

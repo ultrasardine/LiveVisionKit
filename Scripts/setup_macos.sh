@@ -70,6 +70,54 @@ check_homebrew() {
     log_info "Homebrew found: $(brew --version | head -n1)"
 }
 
+# Function to check and configure Xcode Command Line Tools
+check_xcode_tools() {
+    log_info "Checking Xcode Command Line Tools..."
+    
+    # Check if xcode-select path is valid
+    if ! xcode-select -p &> /dev/null; then
+        log_error "Xcode Command Line Tools not installed."
+        log_error "Please install with: xcode-select --install"
+        exit 1
+    fi
+    
+    local xcode_path=$(xcode-select -p)
+    log_info "Xcode path: $xcode_path"
+    
+    # Check if the path exists
+    if [ ! -d "$xcode_path" ]; then
+        log_error "Xcode path does not exist: $xcode_path"
+        log_error "Please reinstall Xcode Command Line Tools: xcode-select --install"
+        exit 1
+    fi
+    
+    # Verify clang is available
+    if ! command -v clang &> /dev/null; then
+        log_error "C compiler (clang) not found."
+        log_error "Please ensure Xcode Command Line Tools are properly installed."
+        exit 1
+    fi
+    
+    # Check compiler version
+    local clang_version=$(clang --version | head -n1)
+    log_info "Compiler: $clang_version"
+    
+    # Accept Xcode license if needed (may prompt for sudo)
+    if ! /usr/bin/xcrun clang --version &> /dev/null; then
+        log_info "Accepting Xcode license..."
+        sudo xcodebuild -license accept 2>/dev/null || true
+    fi
+    
+    # Ensure proper SDK is selected
+    local sdk_path=$(xcrun --show-sdk-path 2>/dev/null)
+    if [ -n "$sdk_path" ]; then
+        log_info "SDK path: $sdk_path"
+    else
+        log_error "Could not determine SDK path. Run: sudo xcode-select --reset"
+        exit 1
+    fi
+}
+
 # Function to check if a package is installed via Homebrew
 is_package_installed() {
     local package=$1
@@ -144,10 +192,16 @@ validate_dependency_versions() {
         log_info "OpenCV version: $opencv_version"
     fi
     
-    # Check Qt5
+    # Check Qt5 (for OpenVisionKit core)
     if is_package_installed "qt@5"; then
         local qt5_version=$(get_package_version "qt@5")
-        log_info "Qt5 version: $qt5_version"
+        log_info "Qt5 version: $qt5_version (for OpenVisionKit core)"
+    fi
+    
+    # Check Qt6 (for OBS 31+)
+    if is_package_installed "qt@6"; then
+        local qt6_version=$(get_package_version "qt@6")
+        log_info "Qt6 version: $qt6_version (for OBS 31+)"
     fi
     
     # Check Eigen
@@ -166,8 +220,21 @@ validate_dependency_versions() {
 # Function to build OBS Studio for macOS
 build_obs_studio() {
     log_info "Building OBS Studio for macOS..."
+    log_info "NOTE: Building OBS from source requires full Xcode (not just Command Line Tools)"
     
-    local obs_version="30.0.2"  # Use a recent stable version
+    # Check if Xcode is available
+    if ! xcodebuild -version &> /dev/null; then
+        log_error "OBS Studio requires full Xcode to build from source."
+        log_error "Please either:"
+        log_error "  1. Install Xcode from the App Store, then run:"
+        log_error "     sudo xcode-select -s /Applications/Xcode.app/Contents/Developer"
+        log_error "  2. Or skip OBS plugin build for now"
+        log_error ""
+        log_error "After installing Xcode, re-run: ./Scripts/setup_macos.sh -f"
+        exit 1
+    fi
+    
+    local obs_version="32.0.4"
     local obs_path="${deps_path}/obs-studio"
     
     # Clone OBS Studio if not already present
@@ -205,6 +272,8 @@ build_obs_studio() {
         "vlc"
         "swig"
         "python@3.11"
+        "qt@6"
+        "simde"
     )
     
     for dep in "${obs_deps[@]}"; do
@@ -222,15 +291,12 @@ build_obs_studio() {
         mkdir -p "$obs_build_path"
     fi
     
-    cd "$obs_build_path"
+    cd "$obs_path"
     
-    # Configure OBS Studio build for macOS
-    log_info "Configuring OBS Studio build..."
-    
-    # Get Qt5 path for OBS
-    local qt5_path=""
-    if is_package_installed "qt@5"; then
-        qt5_path=$(brew --prefix qt@5)
+    # Get Qt6 path for OBS 31+
+    local qt6_path=""
+    if is_package_installed "qt@6"; then
+        qt6_path=$(brew --prefix qt@6)
     fi
     
     # Get FFmpeg path
@@ -239,8 +305,29 @@ build_obs_studio() {
         ffmpeg_path=$(brew --prefix ffmpeg)
     fi
     
-    # Configure with CMake
-    cmake -DCMAKE_BUILD_TYPE="$config" \
+    # Get the SDK path to bypass OBS's broken SDK version detection on macOS 26
+    local sdk_path=$(xcrun --show-sdk-path)
+    local sdk_version=$(xcrun --show-sdk-version)
+    log_info "SDK path: $sdk_path"
+    log_info "SDK version: $sdk_version"
+    
+    # Patch the OBS compilerconfig.cmake to skip SDK version check on macOS 26+
+    local compiler_config="${obs_path}/cmake/macos/compilerconfig.cmake"
+    if [ -f "$compiler_config" ]; then
+        log_info "Patching OBS SDK version check for macOS 26 compatibility..."
+        # Comment out the SDK version check
+        sed -i '' 's/^if(CMAKE_HOST_SYSTEM_VERSION VERSION_LESS/# Patched for macOS 26: if(FALSE AND CMAKE_HOST_SYSTEM_VERSION VERSION_LESS/' "$compiler_config" 2>/dev/null || true
+        sed -i '' 's/message(FATAL_ERROR "Your macOS SDK version/# Patched for macOS 26: message(WARNING "Your macOS SDK version/' "$compiler_config" 2>/dev/null || true
+    fi
+    
+    # Use CMake preset with Xcode generator (required by OBS 31+)
+    log_info "Configuring OBS Studio build with Xcode generator..."
+    log_info "Working directory: $(pwd)"
+    
+    cmake --preset macos \
+          -DCMAKE_OSX_SYSROOT="$sdk_path" \
+          -DCMAKE_C_FLAGS="-Wno-error=deprecated-declarations" \
+          -DCMAKE_CXX_FLAGS="-Wno-error=deprecated-declarations" \
           -DENABLE_BROWSER=OFF \
           -DENABLE_WEBSOCKET=ON \
           -DENABLE_LIBFDK=OFF \
@@ -249,12 +336,10 @@ build_obs_studio() {
           -DENABLE_LUA=OFF \
           -DBUILD_TESTS=OFF \
           -DBUILD_FOR_DISTRIBUTION=ON \
-          -DCMAKE_OSX_DEPLOYMENT_TARGET=10.15 \
-          -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
-          ${qt5_path:+-DQt5_DIR="$qt5_path/lib/cmake/Qt5"} \
+          -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
+          ${qt6_path:+-DQt6_DIR="$qt6_path/lib/cmake/Qt6"} \
           ${ffmpeg_path:+-DFFMPEG_ROOT="$ffmpeg_path"} \
-          -DCMAKE_PREFIX_PATH="$(brew --prefix)" \
-          ..
+          -DCMAKE_PREFIX_PATH="$(brew --prefix)"
     
     if [ $? -ne 0 ]; then
         log_error "OBS Studio CMake configuration failed"
@@ -263,7 +348,7 @@ build_obs_studio() {
     
     # Build OBS Studio
     log_info "Building OBS Studio (this may take a while)..."
-    cmake --build . --config "$config" --parallel $(sysctl -n hw.ncpu)
+    cmake --build build_macos --config Release --parallel $(sysctl -n hw.ncpu)
     
     if [ $? -ne 0 ]; then
         log_error "OBS Studio build failed"
@@ -272,7 +357,7 @@ build_obs_studio() {
     
     # Install OBS Studio
     log_info "Installing OBS Studio..."
-    cmake --install . --prefix "./install/" --config "$config"
+    cmake --install build_macos --config Release --prefix "${obs_build_path}/install"
     
     if [ $? -ne 0 ]; then
         log_error "OBS Studio installation failed"
@@ -615,6 +700,7 @@ main() {
     
     # Check prerequisites
     check_homebrew
+    check_xcode_tools
     
     # Update Homebrew
     log_info "Updating Homebrew..."
@@ -662,6 +748,10 @@ main() {
     
     if is_package_installed "qt@5"; then
         echo "  Qt5_DIR=$(brew --prefix qt@5)/lib/cmake/Qt5"
+    fi
+    
+    if is_package_installed "qt@6"; then
+        echo "  Qt6_DIR=$(brew --prefix qt@6)/lib/cmake/Qt6  (for OBS 31+)"
     fi
     
     if is_package_installed "eigen"; then

@@ -16,8 +16,23 @@
 // 	  **********************************************************************
 
 #include <csignal>
-#include <obs-module.h>
+
+// Fix Apple Objective-C macro conflicts with OpenCV
+#ifdef __APPLE__
+    #pragma push_macro("YES")
+    #pragma push_macro("NO")
+    #undef YES
+    #undef NO
+#endif
+
 #include <opencv2/core/ocl.hpp>
+
+#ifdef __APPLE__
+    #pragma pop_macro("YES")
+    #pragma pop_macro("NO")
+#endif
+
+#include <obs-module.h>
 
 #include "Interop/InteropContext.hpp"
 #include "Utility/Logging.hpp"

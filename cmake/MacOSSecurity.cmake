@@ -66,8 +66,30 @@ function(configure_macos_security TARGET_NAME)
         
         # Add hardened runtime linker flags for non-Xcode builds
         if(NOT CMAKE_GENERATOR MATCHES "Xcode")
+            # Generate Info.plist if it doesn't exist
+            set(INFO_PLIST_PATH "${CMAKE_CURRENT_BINARY_DIR}/Info.plist")
+            if(NOT EXISTS "${INFO_PLIST_PATH}")
+                file(WRITE "${INFO_PLIST_PATH}" "<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">
+<plist version=\"1.0\">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>${TARGET_NAME}</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.openvisionkit.${TARGET_NAME}</string>
+    <key>CFBundleName</key>
+    <string>${TARGET_NAME}</string>
+    <key>CFBundleVersion</key>
+    <string>1.0</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>10.15</string>
+</dict>
+</plist>")
+            endif()
             target_link_options(${TARGET_NAME} PRIVATE
-                "LINKER:-sectcreate,__TEXT,__info_plist,${CMAKE_CURRENT_BINARY_DIR}/Info.plist"
+                "LINKER:-sectcreate,__TEXT,__info_plist,${INFO_PLIST_PATH}"
             )
         endif()
         

@@ -90,7 +90,7 @@ bool initialize_gpu_acceleration()
 
 GPUCapabilities get_gpu_capabilities()
 {
-    return GPUAccelerationManager::instance().m_capabilities;
+    return GPUAccelerationManager::instance().capabilities();
 }
 
 //---------------------------------------------------------------------------------------------------------------------
@@ -162,11 +162,11 @@ bool MacOSOpenCLContext::detect_opencl_support()
     // Look for a suitable device
     for (const auto& platform : platforms)
     {
-        std::vector<cv::ocl::Device> devices;
-        platform.getDevices(devices);
-        
-        for (const auto& device : devices)
+        int numDevices = platform.deviceNumber();
+        for (int i = 0; i < numDevices; ++i)
         {
+            cv::ocl::Device device;
+            platform.getDevice(device, i);
             if (device.type() == cv::ocl::Device::TYPE_GPU || 
                 device.type() == cv::ocl::Device::TYPE_ACCELERATOR)
             {

@@ -35,7 +35,38 @@ target_link_libraries(
     ${PROJECT_NAME}
     lvk-core
     opencv_videoio
+    opencv_highgui
 )
+
+# VideoEditor uses highgui which requires Qt5
+# (This is fine for standalone app, but NOT for OBS plugin which uses Qt6)
+if(UNIX AND NOT APPLE)
+    find_package(Qt5 COMPONENTS Core Gui Widgets Test Concurrent OpenGL QUIET)
+    if(Qt5_FOUND)
+        target_link_libraries(
+            ${PROJECT_NAME}
+            Qt5::Core
+            Qt5::Gui
+            Qt5::Widgets
+            Qt5::Test
+            Qt5::Concurrent
+            Qt5::OpenGL
+        )
+    endif()
+elseif(APPLE)
+    find_package(Qt5 COMPONENTS Core Gui Widgets Test Concurrent OpenGL QUIET)
+    if(Qt5_FOUND)
+        target_link_libraries(
+            ${PROJECT_NAME}
+            Qt5::Core
+            Qt5::Gui
+            Qt5::Widgets
+            Qt5::Test
+            Qt5::Concurrent
+            Qt5::OpenGL
+        )
+    endif()
+endif()
 
 
 # Set up install rules
@@ -75,6 +106,7 @@ if(APPLE)
     find_library(VIDEOTOOLBOX_FRAMEWORK VideoToolbox)
     find_library(COREFOUNDATION_FRAMEWORK CoreFoundation)
     find_library(FOUNDATION_FRAMEWORK Foundation)
+    find_library(COREMEDIA_FRAMEWORK CoreMedia)
     
     if(AVFOUNDATION_FRAMEWORK)
         target_link_libraries(${PROJECT_NAME} ${AVFOUNDATION_FRAMEWORK})
@@ -92,6 +124,11 @@ if(APPLE)
     
     if(FOUNDATION_FRAMEWORK)
         target_link_libraries(${PROJECT_NAME} ${FOUNDATION_FRAMEWORK})
+    endif()
+    
+    if(COREMEDIA_FRAMEWORK)
+        target_link_libraries(${PROJECT_NAME} ${COREMEDIA_FRAMEWORK})
+        message(STATUS "${MI}Linked CoreMedia framework for video editor")
     endif()
     
     # Configure macOS security features
